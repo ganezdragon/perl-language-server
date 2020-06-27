@@ -1,0 +1,5 @@
+# node stuffs
+node_modules/
+
+#build
+out/

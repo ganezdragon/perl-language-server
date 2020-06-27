@@ -3,23 +3,46 @@
   "displayName": "perl-language-server",
   "description": "a simple javascript based language server for perl",
   "version": "0.0.1",
+  "scripts": {
+    "compile": "tsc -b",
+    "watch": "tsc -b -w",
+    "postinstall": "cd client && npm i && cd ../server && npm i && cd .."
+  },
   "engines": {
     "vscode": "^1.46.0"
   },
+  "main": "./client/out/extension",
+  "activationEvents": [
+    "onLanguage:perl"
+  ],
   "categories": [
     "Programming Languages"
   ],
   "contributes": {
-    "languages": [{
-      "id": "perl",
-      "aliases": ["perl", "perl"],
-      "extensions": [".pl",".pm"],
-      "configuration": "./language-configuration.json"
-    }],
-    "grammars": [{
-      "language": "perl",
-      "scopeName": "",
-      "path": "./syntaxes/perl.tmLanguage.json"
-    }]
+    "configuration": {
+      "title": "object",
+      "properties": {}
+    },
+    "languages": [
+      {
+        "id": "perl",
+        "aliases": [
+          "perl",
+          "perl"
+        ],
+        "extensions": [
+          ".pl",
+          ".pm"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "perl",
+        "scopeName": "source.perl",
+        "path": "./syntaxes/perl.tmLanguage.json"
+      }
+    ]
   }
 }

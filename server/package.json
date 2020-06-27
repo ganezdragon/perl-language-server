@@ -1,0 +1,19 @@
+{
+	"name": "perl-lsp-server",
+	"description": "The perl lsp server implemented in javascript.",
+	"version": "1.0.0",
+	"author": "ganezdragon",
+	"license": "MIT",
+	"engines": {
+		"node": "*"
+	},
+	"dependencies": {
+		"vscode-languageserver": "^6.1.1",
+		"vscode-languageserver-textdocument": "^1.0.1"
+	},
+	"scripts": {},
+	"devDependencies": {
+		"@types/node": "^14.0.14",
+		"@types/typescript": "^2.0.0"
+	}
+}
