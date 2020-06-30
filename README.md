@@ -1,8 +1,10 @@
-# perl-language-server README
+# perl-language-server
 
-This is the README for your extension "perl-language-server". After writing up a brief description, we recommend including the following sections.
+A simple perl language server written in typescript, with a client that's also written in typescript. Intended to be used with vs code, but could be extended.
 
 ## Features
+
+- Syntax highlighting (uses already existing textmate grammar that vs code uses)
 
 Describe specific features of your extension including screenshots of your extension in action. Image paths are relative to this README file.
 

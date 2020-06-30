@@ -36,13 +36,6 @@
         ],
         "configuration": "./language-configuration.json"
       }
-    ],
-    "grammars": [
-      {
-        "language": "perl",
-        "scopeName": "source.perl",
-        "path": "./syntaxes/perl.tmLanguage.json"
-      }
     ]
   }
 }
