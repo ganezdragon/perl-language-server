@@ -1,5 +1,10 @@
-import { createConnection, ProposedFeatures, TextDocuments, InitializeParams, InitializeResult, TextDocumentSyncKind, DidChangeConfigurationNotification } from 'vscode-languageserver';
 import { TextDocument } from 'vscode-languageserver-textdocument';
+import { Connection, createConnection, DidChangeConfigurationNotification, InitializeParams, InitializeResult, ProposedFeatures, TextDocuments, TextDocumentSyncKind } from 'vscode-languageserver/node';
+import Analyzer from './analyzer';
+import { initializeParser } from './parser';
+import DefinitionImpl from './programmatic_features/definition';
+import HoverImpl from './programmatic_features/hover';
+import Parser = require('web-tree-sitter');
 
 // Create the connection for the server
 const connection = createConnection(ProposedFeatures.all);
@@ -10,6 +15,14 @@ let documents: TextDocuments<TextDocument> = new TextDocuments(TextDocument);
 let hasConfigurationCapability: boolean = false;
 let hasWorkspaceFolderCapability: boolean = false;
 let hasDiagnosticRelatedInformationCapability: boolean = false;
+
+export default class PerlServer {
+	public static async initialize(connectionParam: Connection) {
+		const parser = await initializeParser();
+
+		let analyzer = new Analyzer(parser);
+	}
+}
 
 connection.onInitialize((params: InitializeParams) => {
 	let capabilities = params.capabilities;
@@ -34,7 +47,10 @@ connection.onInitialize((params: InitializeParams) => {
 			// Tell the client that this server supports code completion.
 			completionProvider: {
 				resolveProvider: true
-			}
+			},
+
+			// goto definition
+			definitionProvider: true,
 		}
 	};
 	if (hasWorkspaceFolderCapability) {
@@ -44,6 +60,9 @@ connection.onInitialize((params: InitializeParams) => {
 			}
 		};
 	}
+
+	// initialization stuffs
+	
 	return result;
 });
 
@@ -59,8 +78,25 @@ connection.onInitialized(() => {
 	}
 });
 
-documents.onDidChangeContent((change) => {
-    console.log('sdf');
+documents.onDidChangeContent(async (change) => {
+	console.log('file changed event');
+	
+
+
+	// const parser = new Parser();
+	// parser.setLanguage(JavaScript);
+
+	// // const sourceCode = 'let x = 1; console.log(x);';
+	// const sourceCode = 'my $a=1;';
+	// const tree = parser.parse(sourceCode);
+
+	// console.log(tree.rootNode.toString());
+
+	let a: Parser = await initializeParser();
+		
+	let analyzer = new Analyzer(a);
+	console.log(analyzer);
+	analyzer.analyze(change.document);
 });
 
 // The example settings
@@ -121,6 +157,10 @@ connection.onDidChangeWatchedFiles(_change => {
 	// Monitored files have change in VSCode
 	connection.console.log('We received an file change event');
 });
+
+// features listeners
+connection.onHover(HoverImpl.prototype.onHover);
+connection.onDefinition(DefinitionImpl.prototype.onDefinition);
 
 // Make the text document manager listen on the connection
 // for open, change and close text document events
