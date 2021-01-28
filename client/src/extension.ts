@@ -48,7 +48,18 @@ function activate(context: ExtensionContext) {
   client.start();
 }
 
+/**
+ * Register for extension deactivation
+ */
+function deactivate(): Thenable<void> | undefined {
+  if (!client) {
+    return undefined;
+  }
+  return client.stop();
+}
+
 export {
-  activate
+  activate,
+  deactivate,
 };
 
