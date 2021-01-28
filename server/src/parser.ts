@@ -1,6 +1,6 @@
 import * as Parser from 'web-tree-sitter'
 
-export async function initializeParser(): Promise<Parser> {
+async function initializeParser(): Promise<Parser> {
   await Parser.init();
   const parser: Parser = new Parser();
 
@@ -8,4 +8,8 @@ export async function initializeParser(): Promise<Parser> {
   
   parser.setLanguage(lang);
   return parser;
+}
+
+export {
+  initializeParser
 }
