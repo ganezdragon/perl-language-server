@@ -54,7 +54,7 @@ export default class PerlServer {
     // when the text document first opened or when its content has changed.
     this.documents.onDidChangeContent(async (change) => {
       // validateTextDocument(change.document);
-      connection.console.log('file change event detected!');
+      connection.console.info('file change event detected!');
 
       // const parser = new Parser();
       // parser.setLanguage(JavaScript);
@@ -65,11 +65,7 @@ export default class PerlServer {
 
       // console.log(tree.rootNode.toString());
 
-      // throw away code
-      let a: Parser = await initializeParser();
-
-      let analyzer = new Analyzer(a);
-      const diag = await analyzer.analyze(change.document);
+      const diag = await this.analyzer.analyze(change.document);
 
       connection.sendDiagnostics({
         uri: change.document.uri,

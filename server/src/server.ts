@@ -31,12 +31,12 @@ connection.onInitialize(async (params: InitializeParams) => {
 		capabilities: {
 			textDocumentSync: TextDocumentSyncKind.Incremental,
 			// Tell the client that this server supports code completion.
-			completionProvider: {
-				resolveProvider: true
-			},
+			// completionProvider: {
+			// 	resolveProvider: true
+			// },
 
-			// goto definition
-			definitionProvider: true,
+			// // goto definition
+			// definitionProvider: true,
 		}
 	};
 	if (hasWorkspaceFolderCapability) {
@@ -65,7 +65,7 @@ connection.onInitialized(() => {
 	}
 	if (hasWorkspaceFolderCapability) {
 		connection.workspace.onDidChangeWorkspaceFolders(_event => {
-			connection.console.log('Workspace folder change event received.');
+			connection.console.info('Workspace folder change event received.');
 		});
 	}
 });
@@ -103,7 +103,7 @@ connection.onDidChangeConfiguration(() => {
 
 connection.onDidChangeWatchedFiles(_change => {
 	// Monitored files have change in VSCode
-	connection.console.log('We received an file change event on a watched file');
+	connection.console.info('We received an file change event on a watched file');
 });
 
 //Listen on the connection
