@@ -19,6 +19,7 @@
 		"@types/node": "^14.0.14",
 		"electron-rebuild": "^2.3.4",
 		"tree-sitter": "^0.17.1",
+		"tree-sitter-cli": "^0.16.9",
 		"tree-sitter-perl": "file:../../tree-sitter-perl"
 	}
 }

@@ -9,3 +9,7 @@ Chrome: 83.0.4103.122
 Node.js: 12.14.1
 V8: 8.3.110.13-electron.0
 OS: Linux x64 5.8.0-34-generic snap
+
+
+ganez@PC:~/Documents/working/projects/perl-language-server/server$ source ../../../testing/emsdk/emsdk_env.sh 
+ganez@PC:~/Documents/working/projects/perl-language-server/server$ tree-sitter build-wasm node_modules/tree-sitter-perl/
