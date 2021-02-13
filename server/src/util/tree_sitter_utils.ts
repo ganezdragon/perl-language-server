@@ -1,6 +1,13 @@
 import { Range } from "vscode-languageserver/node";
 import { SyntaxNode } from "web-tree-sitter";
 
+/**
+ * For each syntax node, analyze each of its children
+ * 
+ * @function forEachNodeAnalyze
+ * @param node the syntax node
+ * @param callBack the callBack function to execute
+ */
 function forEachNodeAnalyze(node: SyntaxNode, callBack: (nodeInCallBack: SyntaxNode) => void): void {
   callBack(node);
 
@@ -12,6 +19,31 @@ function forEachNodeAnalyze(node: SyntaxNode, callBack: (nodeInCallBack: SyntaxN
   }
 }
 
+/**
+ * Given a node, executes the callBack function for each of its
+ * children.
+ * 
+ * @function forEachNode
+ * @param node the syntax node
+ * @param callBack the callBack function to execute
+ */
+function forEachNode(node: SyntaxNode, callBack: (nodeInCallBack: SyntaxNode) => void): void {
+  callBack(node);
+
+  if (node.childCount) {
+    node.children.forEach(currentChildNode => {
+      forEachNode(currentChildNode, callBack);
+    })
+  }
+}
+
+/**
+ * For a given node, returns back the range
+ * 
+ * @function getRangeForNode
+ * @param node the syntax node
+ * @returns Range
+ */
 function getRangeForNode(node: SyntaxNode): Range {
   return Range.create(
     node.startPosition.row,
@@ -23,5 +55,6 @@ function getRangeForNode(node: SyntaxNode): Range {
 
 export {
   forEachNodeAnalyze,
+  forEachNode,
   getRangeForNode,
 }

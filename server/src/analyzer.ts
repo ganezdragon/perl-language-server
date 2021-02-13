@@ -1,14 +1,18 @@
 import * as Parser from 'web-tree-sitter';
 import { promises as fs } from 'fs';
 import { TextDocument } from 'vscode-languageserver-textdocument';
-import { Connection, Diagnostic, DiagnosticSeverity, InitializeParams, } from 'vscode-languageserver/node';
+import { Connection, Diagnostic, DiagnosticSeverity, InitializeParams, SymbolInformation, SymbolKind, } from 'vscode-languageserver/node';
 import { getGlobPattern } from './util/perl_utils';
 import { getFilesFromPath } from './util/file';
-import { forEachNodeAnalyze, getRangeForNode } from './util/tree_sitter_utils';
-import { notDeepEqual } from 'assert';
+import { forEachNode, forEachNodeAnalyze, getRangeForNode } from './util/tree_sitter_utils';
+import { FileDeclarations } from './types/common.types';
 
 class Analyzer {
+  // dependencies
   private parser: Parser;
+
+  // other properties
+  private uriToDeclarations: FileDeclarations = {};
 
   /**
    * The constructor
@@ -28,6 +32,9 @@ class Analyzer {
 
     let tree: Parser.Tree = this.parser.parse(content);
 
+    this.uriToDeclarations[document.uri] = {};
+
+    // for each node do some analyses
     forEachNodeAnalyze(tree.rootNode, (node: Parser.SyntaxNode) => {
       if (node.type === 'ERROR') {
         if (node.toString().includes('UNEXPECTED')) {
@@ -49,27 +56,22 @@ class Analyzer {
           );
         }
       }
-      else if (node.type === 'MISSING') {
-        if (node.toString().includes('semi_colon')) {
-          problems.push(
-            Diagnostic.create(
-              getRangeForNode(node),
-              `Syntax Error: Missing semicolon`,
-              DiagnosticSeverity.Error,
-            ),
-          );
-        }
-      }
     });
 
+    /**
+     * Parses the tree and pushes into the problems array,
+     * if a node is suspected missing in the tree.
+     * 
+     * @param node the syntax node
+     */
     function findMissingNodes(node: Parser.SyntaxNode) {
       
       if (node.isMissing()) {
         problems.push(
           Diagnostic.create(
             getRangeForNode(node),
-            `Syntax error: expected "${node.type}" somewhere in the file`,
-            DiagnosticSeverity.Warning,
+            `Syntax error: expected "${node.type}"`,
+            DiagnosticSeverity.Error,
           ),
         );
       }
@@ -80,19 +82,96 @@ class Analyzer {
 
     findMissingNodes(tree.rootNode);
 
-    // problems.push(Diagnostic.create(Range.create(1,2,3,4), "failed to parse",2));
+    this.extractAndSetDeclarationsFromFile(document, tree.rootNode);
 
     return problems;
     
   }
 
   /**
+   * Given a document, and syntax tree, gets all the declarations
+   * in file, and sets it in the cache.
+   * 
+   * @function extractAndSetDeclarationsFromFile
+   * @param document the current perl document
+   * @param rootNode the rootNode of the syntax tree
+   */
+  private extractAndSetDeclarationsFromFile(document: TextDocument, rootNode: Parser.SyntaxNode): void {
+    const uri: string = document.uri;
+
+    // Get all the variable and function declarations alone
+    const variableDeclarationNodes: Parser.SyntaxNode[] = [
+      ...rootNode.descendantsOfType('multi_var_declaration'),
+      ...rootNode.descendantsOfType('single_var_declaration'),
+    ];
+    const functionDeclarationNodes: Parser.SyntaxNode[] = rootNode.descendantsOfType('function_definition');
+
+    // Each declaration could have a single or multiple variables
+    // 1) my $a;
+    // 2) my ($a, $b, $c);
+    variableDeclarationNodes.forEach(declarationNode => {
+      // a.children[0].childForFieldName('name')
+      let variableNodes: Parser.SyntaxNode[] = [];
+
+      forEachNode(declarationNode, (node) => {
+        const variable: Parser.SyntaxNode | null = node.childForFieldName('name');
+        
+        if (variable) {
+          variableNodes.push(variable);
+        }
+      });
+
+      variableNodes.forEach(variableNode => {
+        const variableName: string = variableNode.text;
+
+        let namedDeclarations = this.uriToDeclarations[uri][variableName] || [];
+
+        namedDeclarations.push(
+          SymbolInformation.create(
+            variableName,
+            SymbolKind.Variable,
+            getRangeForNode(variableNode),
+            uri,
+            variableNode.parent?.text
+          ),
+        );
+
+        this.uriToDeclarations[uri][variableName] = namedDeclarations;
+      });
+    });
+
+    functionDeclarationNodes.forEach(functionDeclarationNode => {
+      const functionName = functionDeclarationNode.childForFieldName('name')?.text;
+
+      if (!functionName) {
+        return;
+      }
+
+      let namedDeclarations = this.uriToDeclarations[uri][functionName] || [];
+
+      namedDeclarations.push(
+        SymbolInformation.create(
+          functionName,
+          SymbolKind.Function,
+          getRangeForNode(functionDeclarationNode),
+          uri,
+          functionDeclarationNode.parent?.text
+        ),
+      );
+
+      this.uriToDeclarations[uri][functionName] = namedDeclarations;
+    });
+  }
+
+  /**
    * Given an workspace folder, parses all perl files in that folder,
    * and returns back the Analyzer tree object.
    * 
+   * @function analyzeFromWorkspace
    * @param connection the client - server connection
    * @param workspaceFolders the workspace folder loaded on to the editor
    * @param parser the parser object
+   * @returns a Promise of Analyzer
    */
   public static async analyzeFromWorkspace(
     connection: Connection,
