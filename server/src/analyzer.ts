@@ -241,6 +241,14 @@ class Analyzer {
     return analyzer;
   }
 
+  /**
+   * Gets and returns the Syntax Node from the tree, at a given point.
+   * 
+   * @param uri the uri string
+   * @param line the row of the change
+   * @param column the column of the change
+   * @returns SyntaxNode or null
+   */
   public getNodeAtPoint(uri: string, line: number, column: number): Parser.SyntaxNode | null {
     const tree: Parser.Tree = this.uriToTree[uri];
 
@@ -254,26 +262,13 @@ class Analyzer {
     return node;
   }
 
-  public getWordAtPointWithType(uri: string, line: number, column: number): WordWithType | null {
-    const tree: Parser.Tree = this.uriToTree[uri];
-
-    if (!tree.rootNode) {
-      // Check for lacking rootNode (due to failed parse?)
-      return null;
-    }
-
-    const node = tree.rootNode.descendantForPosition({ row: line, column });
-
-    if (!node || node.childCount > 0 || node.text.trim() === '') {
-      return null;
-    }
-
-    return {
-      type: node.type,
-      word: node.text.trim(),
-    };
-  }
-
+  /**
+   * Returns the Definition which is an array of SymbolInformation.
+   * 
+   * @param uri the current uri string
+   * @param node the current Node for which to find definition
+   * @returns Definition
+   */
   public findDefinition(uri: string, node: Parser.SyntaxNode): Definition {
     // TODO: if the name is a variable, find the first named child in the rootNote ?
     const symbols: SymbolInformation[] = [];
@@ -281,6 +276,14 @@ class Analyzer {
     const identifierName: string = node.text;
 
     let gotTheVariable: boolean = false;
+
+    /**
+     * Finds the variables from the parent node recursively.
+     * This is to find the definition of the variables within its scope.
+     * 
+     * @param parentNode the parentNode of the current node in syntax tree
+     * @returns SyntaxNode or null
+     */
     function findVariablesFromParentNodeRecursive(parentNode: Parser.SyntaxNode | null) {
       if (!parentNode) {
         return;

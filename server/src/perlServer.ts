@@ -71,13 +71,14 @@ export default class PerlServer {
     connection.onDefinition(this.onDefinition.bind(this));
   }
 
+  /**
+   * the onDefinition Handler, which get click when
+   * you jump to definition of a sub or a variable
+   * 
+   * @param params the DefinitionParams
+   * @returns Definition or null
+   */
   private onDefinition(params: DefinitionParams): Definition | null {
-    // const wordWithType = this.getWordAtPointWithType(params);
-
-    // if (!wordWithType?.word) {
-    //   return null;
-    // }
-
     const nodeAtPoint = this.getNodeAtPoint(params);
 
     if (!nodeAtPoint) {
@@ -87,19 +88,17 @@ export default class PerlServer {
     return this.analyzer.findDefinition(params.textDocument.uri, nodeAtPoint);
   }
 
+  /**
+   * Returns the tree node at a given point.
+   * 
+   * @param params the DefinitionParams
+   * @returns the SyntaxNode or null
+   */
   private getNodeAtPoint(params: DefinitionParams): Parser.SyntaxNode | null {
     return this.analyzer.getNodeAtPoint(
       params.textDocument.uri,
       params.position.line,
       params.position.character,
     )
-  }
-
-  private getWordAtPointWithType(params: DefinitionParams): WordWithType | null {
-    return this.analyzer.getWordAtPointWithType(
-      params.textDocument.uri,
-      params.position.line,
-      params.position.character,
-    );
   }
 }
