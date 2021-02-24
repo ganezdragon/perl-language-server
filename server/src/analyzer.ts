@@ -1,21 +1,23 @@
 import * as Parser from 'web-tree-sitter';
 import { promises as fs } from 'fs';
 import { TextDocument } from 'vscode-languageserver-textdocument';
-import { Connection, Diagnostic, DiagnosticSeverity, InitializeParams, SymbolInformation, SymbolKind, } from 'vscode-languageserver/node';
+import { Connection, Definition, Diagnostic, DiagnosticSeverity, InitializeParams, SymbolInformation, SymbolKind, } from 'vscode-languageserver/node';
 import { getGlobPattern } from './util/perl_utils';
 import { getFilesFromPath } from './util/file';
 import { forEachNode, forEachNodeAnalyze, getRangeForNode } from './util/tree_sitter_utils';
-import { FileDeclarations } from './types/common.types';
+import { FileDeclarations, URIToTree, WordWithType } from './types/common.types';
 
 class Analyzer {
   // dependencies
   private parser: Parser;
 
   // other properties
-  private uriToDeclarations: FileDeclarations = {};
+  private uriToTree: URIToTree = {};
+  private uriToVariableDeclarations: FileDeclarations = {};
+  private uriToFunctionDeclarations: FileDeclarations = {};
 
   /**
-   * The constructor
+   * The constructor which injects the dependencies
    */
   constructor(parser: Parser) {
     this.parser = parser;
@@ -28,11 +30,14 @@ class Analyzer {
    */
   async analyze(document: TextDocument): Promise<Diagnostic[]> {
     let problems: Diagnostic[] = [];
-    const content = document.getText();
+    const content: string = document.getText();
+    const uri: string = document.uri;
 
     let tree: Parser.Tree = this.parser.parse(content);
 
-    this.uriToDeclarations[document.uri] = {};
+    this.uriToTree[uri] = tree;
+    this.uriToVariableDeclarations[uri] = {};
+    this.uriToFunctionDeclarations[uri] = {};
 
     // for each node do some analyses
     forEachNodeAnalyze(tree.rootNode, (node: Parser.SyntaxNode) => {
@@ -65,7 +70,7 @@ class Analyzer {
      * @param node the syntax node
      */
     function findMissingNodes(node: Parser.SyntaxNode) {
-      
+
       if (node.isMissing()) {
         problems.push(
           Diagnostic.create(
@@ -85,7 +90,7 @@ class Analyzer {
     this.extractAndSetDeclarationsFromFile(document, tree.rootNode);
 
     return problems;
-    
+
   }
 
   /**
@@ -115,7 +120,7 @@ class Analyzer {
 
       forEachNode(declarationNode, (node) => {
         const variable: Parser.SyntaxNode | null = node.childForFieldName('name');
-        
+
         if (variable) {
           variableNodes.push(variable);
         }
@@ -124,7 +129,7 @@ class Analyzer {
       variableNodes.forEach(variableNode => {
         const variableName: string = variableNode.text;
 
-        let namedDeclarations = this.uriToDeclarations[uri][variableName] || [];
+        let namedDeclarations = this.uriToVariableDeclarations[uri][variableName] || [];
 
         namedDeclarations.push(
           SymbolInformation.create(
@@ -136,7 +141,7 @@ class Analyzer {
           ),
         );
 
-        this.uriToDeclarations[uri][variableName] = namedDeclarations;
+        this.uriToVariableDeclarations[uri][variableName] = namedDeclarations;
       });
     });
 
@@ -147,7 +152,7 @@ class Analyzer {
         return;
       }
 
-      let namedDeclarations = this.uriToDeclarations[uri][functionName] || [];
+      let namedDeclarations = this.uriToFunctionDeclarations[uri][functionName] || [];
 
       namedDeclarations.push(
         SymbolInformation.create(
@@ -159,7 +164,7 @@ class Analyzer {
         ),
       );
 
-      this.uriToDeclarations[uri][functionName] = namedDeclarations;
+      this.uriToFunctionDeclarations[uri][functionName] = namedDeclarations;
     });
   }
 
@@ -182,7 +187,7 @@ class Analyzer {
 
     if (workspaceFolders) {
       const globPattern = getGlobPattern();
-      
+
       const lookupStartTime = Date.now()
       const getTimePassed = (): string =>
         `${(Date.now() - lookupStartTime) / 1000} seconds`
@@ -194,7 +199,7 @@ class Analyzer {
         connection.console.info(
           `Analyzing files matching glob "${globPattern}" inside ${folder.uri}`,
         );
-  
+
         try {
           let currentFilePaths = await getFilesFromPath(folder.uri, globPattern);
 
@@ -234,6 +239,103 @@ class Analyzer {
     }
 
     return analyzer;
+  }
+
+  public getNodeAtPoint(uri: string, line: number, column: number): Parser.SyntaxNode | null {
+    const tree: Parser.Tree = this.uriToTree[uri];
+
+    if (!tree.rootNode) {
+      // Check for lacking rootNode (due to failed parse?)
+      return null;
+    }
+
+    const node: Parser.SyntaxNode = tree.rootNode.descendantForPosition({ row: line, column });
+
+    return node;
+  }
+
+  public getWordAtPointWithType(uri: string, line: number, column: number): WordWithType | null {
+    const tree: Parser.Tree = this.uriToTree[uri];
+
+    if (!tree.rootNode) {
+      // Check for lacking rootNode (due to failed parse?)
+      return null;
+    }
+
+    const node = tree.rootNode.descendantForPosition({ row: line, column });
+
+    if (!node || node.childCount > 0 || node.text.trim() === '') {
+      return null;
+    }
+
+    return {
+      type: node.type,
+      word: node.text.trim(),
+    };
+  }
+
+  public findDefinition(uri: string, node: Parser.SyntaxNode): Definition {
+    // TODO: if the name is a variable, find the first named child in the rootNote ?
+    const symbols: SymbolInformation[] = [];
+
+    const identifierName: string = node.text;
+
+    let gotTheVariable: boolean = false;
+    function findVariablesFromParentNodeRecursive(parentNode: Parser.SyntaxNode | null) {
+      if (!parentNode) {
+        return;
+      }
+      // Get all the variable declarations from parent node
+      const variableDeclarationNodes: Parser.SyntaxNode[] = [
+        ...parentNode.descendantsOfType('multi_var_declaration'),
+        ...parentNode.descendantsOfType('single_var_declaration'),
+      ];
+
+      // Each declaration could have a single or multiple variables
+      // 1) my $a;
+      // 2) my ($a, $b, $c);
+      variableDeclarationNodes.forEach(declarationNode => {
+
+        forEachNode(declarationNode, (eachNode) => {
+          const variableNode: Parser.SyntaxNode | null = eachNode.childForFieldName('name');
+
+          // exit when we get the first occurrence in the parent
+          if (variableNode?.text === identifierName) {
+            symbols.push(
+              SymbolInformation.create(
+                variableNode.text,
+                SymbolKind.Variable,
+                getRangeForNode(variableNode),
+                uri,
+                variableNode.parent?.text,
+              ),
+            );
+            gotTheVariable = true;
+
+            return;
+          }
+        });
+      });
+
+      if (gotTheVariable) {
+        return;
+      }
+
+      findVariablesFromParentNodeRecursive(parentNode.parent);
+    }
+
+    if (node.type.match(/_variable/)) {
+      findVariablesFromParentNodeRecursive(node.parent)
+    }
+    // else should be a function
+    else {
+      Object.keys(this.uriToFunctionDeclarations).forEach(thisUri => {
+        const declarationNames: SymbolInformation[] = this.uriToFunctionDeclarations[thisUri][identifierName] || [];
+        declarationNames.forEach(declaration => symbols.push(declaration));
+      });
+    }
+
+    return symbols.map(symbol => symbol.location);
   }
 }
 

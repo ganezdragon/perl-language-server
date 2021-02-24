@@ -35,8 +35,8 @@ connection.onInitialize(async (params: InitializeParams) => {
 			// 	resolveProvider: true
 			// },
 
-			// // goto definition
-			// definitionProvider: true,
+			// goto definition
+			definitionProvider: true,
 		}
 	};
 	if (hasWorkspaceFolderCapability) {
