@@ -1,5 +1,6 @@
 # node stuffs
 node_modules/
 
-#build
+# build
 out/
+*.vsix

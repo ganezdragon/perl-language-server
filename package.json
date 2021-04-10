@@ -5,6 +5,7 @@
   "version": "0.0.1",
   "scripts": {
     "compile": "tsc -b",
+    "clean": "rm -rf server/out && rm -rf client/out",
     "watch": "tsc -b -w",
     "postinstall": "cd client && npm i && cd ../server && npm i && cd .."
   },
@@ -17,6 +18,10 @@
   ],
   "author": "ganezdragon",
   "publisher": "ganezdragon",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ganezdragon/perl-language-server"
+  },
   "categories": [
     "Programming Languages"
   ],

@@ -1,5 +1,6 @@
-./node_modules/.bin/electron-rebuild --version="9.3.5" --arch="Linux x64 5.8.0-34-generic snap" --which-module="tree-sitter"
+./node_modules/.bin/electron-rebuild --version="11.3.0" --arch="Linux x64 5.8.0-48-generic snap" --which-module="tree-sitter"
 
+HOME=~/.electron-gyp node-gyp rebuild --target="11.3.0" --arch="x64" --dist-url=https://electronjs.org/headers
 
 Version: 1.52.1
 Commit: ea3859d4ba2f3e577a159bc91e3074c5d85c0523
@@ -10,6 +11,14 @@ Node.js: 12.14.1
 V8: 8.3.110.13-electron.0
 OS: Linux x64 5.8.0-34-generic snap
 
+Version: 1.55.0
+Commit: c185983a683d14c396952dd432459097bc7f757f
+Date: 2021-03-30T16:02:21.560Z
+Electron: 11.3.0
+Chrome: 87.0.4280.141
+Node.js: 12.18.3
+V8: 8.7.220.31-electron.0
+OS: Linux x64 5.8.0-48-generic snap
 
 ganez@PC:~/Documents/working/projects/perl-language-server/server$ source ../../../testing/emsdk/emsdk_env.sh 
 ganez@PC:~/Documents/working/projects/perl-language-server/server$ tree-sitter build-wasm node_modules/tree-sitter-perl/
