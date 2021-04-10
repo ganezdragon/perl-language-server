@@ -8,8 +8,6 @@ let hasConfigurationCapability: boolean = false;
 let hasWorkspaceFolderCapability: boolean = false;
 let hasDiagnosticRelatedInformationCapability: boolean = false;
 
-let server: PerlServer;
-
 connection.onInitialize(async (params: InitializeParams) => {
 	let capabilities = params.capabilities;
 
@@ -50,8 +48,9 @@ connection.onInitialize(async (params: InitializeParams) => {
 	// Initialize the Perl Server
 	connection.console.info(`Initializing the Perl Language Server`);
 
-	server = await PerlServer.initialize(connection, params);
-	server.register(connection);
+	PerlServer.initialize(connection, params, (server) => {
+		server.register(connection);
+	});
 
 	connection.console.info(`Perl Language Server initialized`);
 

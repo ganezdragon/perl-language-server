@@ -34,12 +34,15 @@ export default class PerlServer {
     this.analyzer = analyzer;
   }
 
-  public static async initialize(connection: Connection, params: InitializeParams): Promise<PerlServer> {
+  public static async initialize(connection: Connection, params: InitializeParams, callBack: (server: PerlServer) => void): Promise<PerlServer> {
     // first initialize the parser once and pass as dependency
     const parser: Parser = await initializeParser();
     const analyzer: Analyzer = await Analyzer.analyzeFromWorkspace(connection, params.workspaceFolders, parser);
 
-    return new PerlServer(connection, analyzer);
+    const server: PerlServer = new PerlServer(connection, analyzer);
+    callBack(server);
+
+    return server;
   }
 
   /**

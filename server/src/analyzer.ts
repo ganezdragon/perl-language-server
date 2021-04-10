@@ -219,7 +219,7 @@ class Analyzer {
       // analyze each file
       for (const filePath of filePaths) {
         const uri = `file://${filePath}`
-        connection.console.info(`Analyzing ${uri}`)
+        // connection.console.info(`Analyzing ${uri}`)
 
         try {
           const fileContent = await fs.readFile(filePath, 'utf8')
