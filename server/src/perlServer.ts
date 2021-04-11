@@ -56,7 +56,7 @@ export default class PerlServer {
     });
     const analyzer: Analyzer = new Analyzer(parser);
     
-    analyzer.analyzeFromWorkspace(connection, params, settings); // do this async
+    analyzer.analyzeFromWorkspace(connection, params, settings); // doing this async
 
     const server: PerlServer = new PerlServer(connection, analyzer);
 

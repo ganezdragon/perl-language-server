@@ -35,8 +35,9 @@ class Analyzer {
 
     let tree: Parser.Tree = this.parser.parse(content);
 
-    this.uriToTree[uri] = tree;
-    this.uriToVariableDeclarations[uri] = {};
+    // TODO: don't cache as of now for performance reasons
+    // this.uriToTree[uri] = tree;
+    // this.uriToVariableDeclarations[uri] = {};
     this.uriToFunctionDeclarations[uri] = {};
 
     // for each node do some analyses
@@ -108,7 +109,7 @@ class Analyzer {
     let variableDeclarationNodes: Parser.SyntaxNode[] = [];
     const functionDeclarationNodes: Parser.SyntaxNode[] = rootNode.descendantsOfType('function_definition');
 
-    // cache variables only for opened files
+    // TODO: get clear on variable cache strategy
     if (0) {
       variableDeclarationNodes = [
       ...rootNode.descendantsOfType('multi_var_declaration'),
@@ -222,13 +223,14 @@ class Analyzer {
 
       // analyze each file
       let problemsCounter: number = 0;
-      for (const filePath of filePaths) {
-        const uri = `file://${filePath}`
-        // connection.console.info(`Analyzing ${uri}`)
+      filePaths.forEach(async (filePath) => {
+        const uri = `file://${filePath}`;
+        connection.console.info(`Analyzing ${uri}`);
         // connection.sendProgress(ProgressType.prototype._pr, 'tokendd', '32');
+        // connection.onProgress();
 
         try {
-          const fileContent = await fs.readFile(filePath, 'utf8')
+          const fileContent = await fs.readFile(filePath, 'utf8');
           let problems = await this.analyze(TextDocument.create(uri, 'perl', 1, fileContent));
           problemsCounter = problemsCounter + problems.length;
 
@@ -241,7 +243,7 @@ class Analyzer {
         } catch (error) {
           connection.console.warn(`Failed analyzing ${uri}. Error: ${error.message}`)
         }
-      }
+      });
 
       connection.console.info(`Analyzer finished after ${getTimePassed()}`)
     }
