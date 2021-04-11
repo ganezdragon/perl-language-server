@@ -2,7 +2,7 @@
   "name": "perl-language-server",
   "displayName": "Perl Language Server",
   "description": "a simple javascript based language server for perl",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "scripts": {
     "compile": "tsc -b",
     "clean": "rm -rf server/out && rm -rf client/out",
