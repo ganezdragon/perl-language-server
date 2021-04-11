@@ -36,7 +36,7 @@ class Analyzer {
     let tree: Parser.Tree = this.parser.parse(content);
 
     // TODO: don't cache as of now for performance reasons
-    // this.uriToTree[uri] = tree;
+    this.uriToTree[uri] = tree;
     // this.uriToVariableDeclarations[uri] = {};
     this.uriToFunctionDeclarations[uri] = {};
 
