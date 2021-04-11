@@ -180,16 +180,13 @@ class Analyzer {
    * @function analyzeFromWorkspace
    * @param connection the client - server connection
    * @param workspaceFolders the workspace folder loaded on to the editor
-   * @param parser the parser object
    * @returns a Promise of Analyzer
    */
-  public static async analyzeFromWorkspace(
+  public async analyzeFromWorkspace(
     connection: Connection,
     params: InitializeParams,
     settings: ExtensionSettings,
-    parser: Parser
-  ): Promise<Analyzer> {
-    const analyzer: Analyzer = new Analyzer(parser);
+  ): Promise<void> {
 
     const workspaceFolders: InitializeParams['workspaceFolders'] = params.workspaceFolders;
     if (workspaceFolders) {
@@ -232,7 +229,7 @@ class Analyzer {
 
         try {
           const fileContent = await fs.readFile(filePath, 'utf8')
-          let problems = await analyzer.analyze(TextDocument.create(uri, 'perl', 1, fileContent));
+          let problems = await this.analyze(TextDocument.create(uri, 'perl', 1, fileContent));
           problemsCounter = problemsCounter + problems.length;
 
           if (settings.maxNumberOfProblems >= problemsCounter) {
@@ -248,8 +245,6 @@ class Analyzer {
 
       connection.console.info(`Analyzer finished after ${getTimePassed()}`)
     }
-
-    return analyzer;
   }
 
   /**

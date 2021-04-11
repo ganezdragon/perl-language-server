@@ -38,6 +38,14 @@ export default class PerlServer {
     this.analyzer = analyzer;
   }
 
+  /**
+   * A static method that initializes the perl server once per boot.
+   * 
+   * @static
+   * @param connection the connection object
+   * @param params the initialize params
+   * @returns a PerlServer
+   */
   public static async initialize(connection: Connection, params: InitializeParams): Promise<PerlServer> {
     // first initialize the parser once and pass as dependency
     const parser: Parser = await initializeParser();
@@ -46,7 +54,9 @@ export default class PerlServer {
     const settings = await connection.workspace.getConfiguration({
       section: 'perl',
     });
-    const analyzer: Analyzer = await Analyzer.analyzeFromWorkspace(connection, params, settings, parser);
+    const analyzer: Analyzer = new Analyzer(parser);
+    
+    analyzer.analyzeFromWorkspace(connection, params, settings); // do this async
 
     const server: PerlServer = new PerlServer(connection, analyzer);
 
