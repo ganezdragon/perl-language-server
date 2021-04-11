@@ -21,4 +21,4 @@ V8: 8.7.220.31-electron.0
 OS: Linux x64 5.8.0-48-generic snap
 
 ganez@PC:~/Documents/working/projects/perl-language-server/server$ source ../../../testing/emsdk/emsdk_env.sh 
-ganez@PC:~/Documents/working/projects/perl-language-server/server$ tree-sitter build-wasm node_modules/tree-sitter-perl/
+ganez@PC:~/Documents/working/projects/perl-language-server/server$ tree-sitter build-wasm node_modules/@ganezdragon/tree-sitter-perl/
