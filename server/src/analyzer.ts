@@ -1,11 +1,11 @@
 import * as Parser from 'web-tree-sitter';
 import { promises as fs } from 'fs';
 import { TextDocument } from 'vscode-languageserver-textdocument';
-import { Connection, Definition, Diagnostic, DiagnosticSeverity, InitializeParams, SymbolInformation, SymbolKind, } from 'vscode-languageserver/node';
+import { Connection, Definition, Diagnostic, DiagnosticSeverity, InitializeParams, ProgressType, SymbolInformation, SymbolKind, } from 'vscode-languageserver/node';
 import { getGlobPattern } from './util/perl_utils';
 import { getFilesFromPath } from './util/file';
 import { forEachNode, forEachNodeAnalyze, getRangeForNode } from './util/tree_sitter_utils';
-import { FileDeclarations, URIToTree, WordWithType } from './types/common.types';
+import { ExtensionSettings, FileDeclarations, URIToTree } from './types/common.types';
 
 class Analyzer {
   // dependencies
@@ -105,11 +105,16 @@ class Analyzer {
     const uri: string = document.uri;
 
     // Get all the variable and function declarations alone
-    const variableDeclarationNodes: Parser.SyntaxNode[] = [
+    let variableDeclarationNodes: Parser.SyntaxNode[] = [];
+    const functionDeclarationNodes: Parser.SyntaxNode[] = rootNode.descendantsOfType('function_definition');
+
+    // cache variables only for opened files
+    if (0) {
+      variableDeclarationNodes = [
       ...rootNode.descendantsOfType('multi_var_declaration'),
       ...rootNode.descendantsOfType('single_var_declaration'),
-    ];
-    const functionDeclarationNodes: Parser.SyntaxNode[] = rootNode.descendantsOfType('function_definition');
+      ];
+    }
 
     // Each declaration could have a single or multiple variables
     // 1) my $a;
@@ -180,11 +185,13 @@ class Analyzer {
    */
   public static async analyzeFromWorkspace(
     connection: Connection,
-    workspaceFolders: InitializeParams['workspaceFolders'],
+    params: InitializeParams,
+    settings: ExtensionSettings,
     parser: Parser
   ): Promise<Analyzer> {
     const analyzer: Analyzer = new Analyzer(parser);
 
+    const workspaceFolders: InitializeParams['workspaceFolders'] = params.workspaceFolders;
     if (workspaceFolders) {
       const globPattern = getGlobPattern();
 
@@ -217,19 +224,23 @@ class Analyzer {
       }
 
       // analyze each file
+      let problemsCounter: number = 0;
       for (const filePath of filePaths) {
         const uri = `file://${filePath}`
         // connection.console.info(`Analyzing ${uri}`)
+        // connection.sendProgress(ProgressType.prototype._pr, 'tokendd', '32');
 
         try {
           const fileContent = await fs.readFile(filePath, 'utf8')
           let problems = await analyzer.analyze(TextDocument.create(uri, 'perl', 1, fileContent));
+          problemsCounter = problemsCounter + problems.length;
 
-          // TODO: make this behind a setting, so that we don't throw problems for all unopened files in the editor
-          connection.sendDiagnostics({
-            uri: uri,
-            diagnostics: problems,
-          });
+          if (settings.maxNumberOfProblems >= problemsCounter) {
+            connection.sendDiagnostics({
+              uri: uri,
+              diagnostics: problems,
+            });
+          }
         } catch (error) {
           connection.console.warn(`Failed analyzing ${uri}. Error: ${error.message}`)
         }

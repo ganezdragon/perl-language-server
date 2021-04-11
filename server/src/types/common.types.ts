@@ -2,7 +2,7 @@ import { SymbolInformation } from "vscode-languageserver/node"
 import { Tree } from "web-tree-sitter";
 
 // The example settings
-interface ExampleSettings {
+interface ExtensionSettings {
 	maxNumberOfProblems: number;
 }
 
@@ -23,7 +23,7 @@ interface WordWithType {
 }
 
 export {
-  ExampleSettings,
+  ExtensionSettings,
   FileDeclarations,
   URIToTree,
   WordWithType,

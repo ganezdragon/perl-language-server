@@ -1,9 +1,10 @@
+import { setTimeout } from "timers";
 import { TextDocument } from "vscode-languageserver-textdocument";
-import { Connection, Definition, DefinitionParams, InitializeParams, TextDocuments } from "vscode-languageserver/node";
+import { ClientCapabilities, Connection, Definition, DefinitionParams, InitializeParams, TextDocuments } from "vscode-languageserver/node";
 import * as Parser from 'web-tree-sitter';
 import Analyzer from "./analyzer";
 import { initializeParser } from "./parser";
-import { ExampleSettings, WordWithType } from "./types/common.types";
+import { ExtensionSettings } from "./types/common.types";
 
 export default class PerlServer {
   // dependencies to be injected
@@ -13,15 +14,18 @@ export default class PerlServer {
   // Begin ----- other properties
   private documents: TextDocuments<TextDocument> = new TextDocuments(TextDocument);
 
-
   // The global settings, used when the `workspace/configuration` request is not supported by the client.
   // Please note that this is not the case when using this server with the client provided in this example
   // but could happen with other clients.
-  private defaultSettings: ExampleSettings = { maxNumberOfProblems: 1000 };
-  private globalSettings: ExampleSettings = this.defaultSettings;
+  private defaultSettings: ExtensionSettings = { maxNumberOfProblems: 1000 };
+  private globalSettings: ExtensionSettings = this.defaultSettings;
 
   // Cache the settings of all open documents
-  private documentSettings: Map<string, Thenable<ExampleSettings>> = new Map();
+  private documentSettings: Map<string, Thenable<ExtensionSettings>> = new Map();
+
+  private hasConfigurationCapability: boolean = false;
+  private hasWorkspaceFolderCapability: boolean = false;
+  private hasDiagnosticRelatedInformationCapability: boolean = false;
   // End ------- other properties
 
   /**
@@ -34,13 +38,17 @@ export default class PerlServer {
     this.analyzer = analyzer;
   }
 
-  public static async initialize(connection: Connection, params: InitializeParams, callBack: (server: PerlServer) => void): Promise<PerlServer> {
+  public static async initialize(connection: Connection, params: InitializeParams): Promise<PerlServer> {
     // first initialize the parser once and pass as dependency
     const parser: Parser = await initializeParser();
-    const analyzer: Analyzer = await Analyzer.analyzeFromWorkspace(connection, params.workspaceFolders, parser);
+
+    // root settings
+    const settings = await connection.workspace.getConfiguration({
+      section: 'perl',
+    });
+    const analyzer: Analyzer = await Analyzer.analyzeFromWorkspace(connection, params, settings, parser);
 
     const server: PerlServer = new PerlServer(connection, analyzer);
-    callBack(server);
 
     return server;
   }
@@ -48,10 +56,16 @@ export default class PerlServer {
   /**
    * Register all the handlers for a connection
    */
-  public register(connection: Connection): void {
+  public register(capabilities: ClientCapabilities): void {
+    // Does the client support the `workspace/configuration` request?
+    // If not, we fall back using global settings.
+    this.hasConfigurationCapability = !!(
+      capabilities.workspace && !!capabilities.workspace.configuration
+    );
+
     // Make the text document manager listen on the connection
     // for open, change and close text document events
-    this.documents.listen(connection);
+    this.documents.listen(this.connection);
 
     // The content of a text document has changed. This event is emitted
     // when the text document first opened or when its content has changed.
@@ -59,7 +73,8 @@ export default class PerlServer {
       // validateTextDocument(change.document);
       const diagnosis = await this.analyzer.analyze(change.document);
 
-      connection.sendDiagnostics({
+      const settings = await this.getDocumentSettings('all');
+      this.connection.sendDiagnostics({
         uri: change.document.uri,
         diagnostics: diagnosis,
       });
@@ -71,7 +86,7 @@ export default class PerlServer {
     });
 
     // all feature related registrations
-    connection.onDefinition(this.onDefinition.bind(this));
+    this.connection.onDefinition(this.onDefinition.bind(this));
   }
 
   /**
@@ -103,5 +118,20 @@ export default class PerlServer {
       params.position.line,
       params.position.character,
     )
+  }
+
+  public async getDocumentSettings(resource: string): Promise<ExtensionSettings> {
+    if (!this.hasConfigurationCapability) {
+      return this.globalSettings;
+    }
+    let result = this.documentSettings.get(resource);
+    if (!result) {
+      result = this.connection.workspace.getConfiguration({
+        scopeUri: resource,
+        section: 'perl'
+      });
+      this.documentSettings.set(resource, result);
+    }
+    return result;
   }
 }

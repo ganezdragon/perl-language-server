@@ -1,6 +1,6 @@
 {
   "name": "perl-language-server",
-  "displayName": "perl-language-server",
+  "displayName": "Perl Language Server",
   "description": "a simple javascript based language server for perl",
   "version": "0.0.1",
   "scripts": {
@@ -27,8 +27,15 @@
   ],
   "contributes": {
     "configuration": {
-      "title": "object",
-      "properties": {}
+      "title": "Perl",
+      "properties": {
+        "perl.maxNumberOfProblems": {
+          "scope": "resource",
+          "type": "number",
+          "default": 100,
+          "description": "Controls the maximum number of problems produced by the server."
+        }
+      }
     },
     "languages": [
       {

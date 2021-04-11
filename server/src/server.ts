@@ -1,3 +1,8 @@
+/**
+ * Just create connection and destroy connection here,
+ * Other perl language core server features would be implemented in
+ * the perlServer.ts file.
+ */
 import { createConnection, DidChangeConfigurationNotification, InitializeParams, InitializeResult, ProposedFeatures, TextDocumentSyncKind } from 'vscode-languageserver/node';
 import PerlServer from './perlServer';
 
@@ -8,7 +13,7 @@ let hasConfigurationCapability: boolean = false;
 let hasWorkspaceFolderCapability: boolean = false;
 let hasDiagnosticRelatedInformationCapability: boolean = false;
 
-connection.onInitialize(async (params: InitializeParams) => {
+connection.onInitialize(async (params: InitializeParams): Promise<InitializeResult> => {
 	let capabilities = params.capabilities;
 
 	// Does the client support the `workspace/configuration` request?
@@ -48,9 +53,10 @@ connection.onInitialize(async (params: InitializeParams) => {
 	// Initialize the Perl Server
 	connection.console.info(`Initializing the Perl Language Server`);
 
-	PerlServer.initialize(connection, params, (server) => {
-		server.register(connection);
-	});
+	PerlServer.initialize(connection, params)
+		.then(server => {
+			server.register(capabilities);
+		});
 
 	connection.console.info(`Perl Language Server initialized`);
 
@@ -70,12 +76,12 @@ connection.onInitialized(() => {
 });
 
 
-connection.onDidChangeConfiguration(() => {
+connection.onDidChangeConfiguration((change) => {
 	// if (hasConfigurationCapability) {
 	// 	// Reset all cached document settings
 	// 	documentSettings.clear();
 	// } else {
-	// 	globalSettings = <ExampleSettings>(
+	// 	globalSettings = <ExtensionSettings>(
 	// 		(change.settings.languageServerExample || defaultSettings)
 	// 	);
 	// }
@@ -84,21 +90,6 @@ connection.onDidChangeConfiguration(() => {
 	// documents.all().forEach(validateTextDocument);
 });
 
-// TODO: make use of this
-// function getDocumentSettings(resource: string): Thenable<ExampleSettings> {
-// 	if (!hasConfigurationCapability) {
-// 		return Promise.resolve(globalSettings);
-// 	}
-// 	let result = documentSettings.get(resource);
-// 	if (!result) {
-// 		result = connection.workspace.getConfiguration({
-// 			scopeUri: resource,
-// 			section: 'languageServerExample'
-// 		});
-// 		documentSettings.set(resource, result);
-// 	}
-// 	return result;
-// }
 
 connection.onDidChangeWatchedFiles(_change => {
 	// Monitored files have change in VSCode
