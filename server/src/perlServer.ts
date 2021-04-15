@@ -4,7 +4,7 @@ import { ClientCapabilities, Connection, Definition, DefinitionParams, Initializ
 import * as Parser from 'web-tree-sitter';
 import Analyzer from "./analyzer";
 import { initializeParser } from "./parser";
-import { ExtensionSettings } from "./types/common.types";
+import { AnalyzeMode, CachingStrategy, ExtensionSettings } from "./types/common.types";
 
 export default class PerlServer {
   // dependencies to be injected
@@ -17,7 +17,7 @@ export default class PerlServer {
   // The global settings, used when the `workspace/configuration` request is not supported by the client.
   // Please note that this is not the case when using this server with the client provided in this example
   // but could happen with other clients.
-  private defaultSettings: ExtensionSettings = { maxNumberOfProblems: 1000 };
+  private defaultSettings: ExtensionSettings = { maxNumberOfProblems: 1000, caching: CachingStrategy.eager};
   private globalSettings: ExtensionSettings = this.defaultSettings;
 
   // Cache the settings of all open documents
@@ -80,10 +80,9 @@ export default class PerlServer {
     // The content of a text document has changed. This event is emitted
     // when the text document first opened or when its content has changed.
     this.documents.onDidChangeContent(async (change) => {
-      // validateTextDocument(change.document);
-      const diagnosis = await this.analyzer.analyze(change.document);
-
       const settings = await this.getDocumentSettings('all');
+      const diagnosis = await this.analyzer.analyze(TextDocument.create(change.document.uri,  'perl', 1, change.document.getText()), AnalyzeMode.OnFileOpen, settings);
+
       this.connection.sendDiagnostics({
         uri: change.document.uri,
         diagnostics: diagnosis,
@@ -130,6 +129,12 @@ export default class PerlServer {
     )
   }
 
+  /**
+   * Given a resource, returns back the setting for it.
+   * 
+   * @param resource the resource to get settings for
+   * @returns the ExtensionSettings
+   */
   public async getDocumentSettings(resource: string): Promise<ExtensionSettings> {
     if (!this.hasConfigurationCapability) {
       return this.globalSettings;

@@ -1,9 +1,19 @@
 import { SymbolInformation } from "vscode-languageserver/node"
 import { Tree } from "web-tree-sitter";
 
-// The example settings
 interface ExtensionSettings {
 	maxNumberOfProblems: number;
+  caching: CachingStrategy;
+}
+
+enum CachingStrategy {
+  full = "full",
+  eager = "eager",
+}
+
+enum AnalyzeMode {
+  OnFileOpen = "OnFileOpen",
+  OnWorkspaceOpen = "OnWorkspaceOpen",
 }
 
 type Declarations = {
@@ -24,6 +34,8 @@ interface WordWithType {
 
 export {
   ExtensionSettings,
+  CachingStrategy,
+  AnalyzeMode,
   FileDeclarations,
   URIToTree,
   WordWithType,

@@ -5,7 +5,7 @@ import { Connection, Definition, Diagnostic, DiagnosticSeverity, InitializeParam
 import { getGlobPattern } from './util/perl_utils';
 import { getFilesFromPath } from './util/file';
 import { forEachNode, forEachNodeAnalyze, getRangeForNode } from './util/tree_sitter_utils';
-import { ExtensionSettings, FileDeclarations, URIToTree } from './types/common.types';
+import { AnalyzeMode, CachingStrategy, ExtensionSettings, FileDeclarations, URIToTree } from './types/common.types';
 
 class Analyzer {
   // dependencies
@@ -27,8 +27,9 @@ class Analyzer {
    * Given a document object, analyzes it and sets the cache for trees
    * 
    * @param document the document to analyze
+   * @param settings the ExtensionSettings
    */
-  async analyze(document: TextDocument): Promise<Diagnostic[]> {
+  async analyze(document: TextDocument, mode: AnalyzeMode, settings: ExtensionSettings): Promise<Diagnostic[]> {
     let problems: Diagnostic[] = [];
     const content: string = document.getText();
     const uri: string = document.uri;
@@ -36,7 +37,9 @@ class Analyzer {
     let tree: Parser.Tree = this.parser.parse(content);
 
     // TODO: don't cache as of now for performance reasons
-    this.uriToTree[uri] = tree;
+    if (settings.caching === CachingStrategy.eager && mode == AnalyzeMode.OnFileOpen) {
+      this.uriToTree[uri] = tree;
+    }
     // this.uriToVariableDeclarations[uri] = {};
     this.uriToFunctionDeclarations[uri] = {};
 
@@ -231,7 +234,7 @@ class Analyzer {
 
         try {
           const fileContent = await fs.readFile(filePath, 'utf8');
-          let problems = await this.analyze(TextDocument.create(uri, 'perl', 1, fileContent));
+          let problems = await this.analyze(TextDocument.create(uri, 'perl', 1, fileContent), AnalyzeMode.OnWorkspaceOpen, settings);
           problemsCounter = problemsCounter + problems.length;
 
           if (settings.maxNumberOfProblems >= problemsCounter) {

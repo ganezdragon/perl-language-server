@@ -34,6 +34,16 @@
           "type": "number",
           "default": 100,
           "description": "Controls the maximum number of problems produced by the server."
+        },
+        "perl.caching": {
+          "scope": "machine-overridable",
+          "type": "string",
+          "default": "eager",
+          "enum": ["full", "eager"],
+          "enumDescriptions": [
+            "Caches the entire workspace source tree. For a large workspace this could crash the server",
+            "Caches only the opened files. This will be still fast."
+          ]
         }
       }
     },
