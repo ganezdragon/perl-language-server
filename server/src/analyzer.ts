@@ -1,5 +1,5 @@
 import * as Parser from 'web-tree-sitter';
-import { promises as fs } from 'fs';
+import * as fs from 'graceful-fs';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { Connection, Definition, Diagnostic, DiagnosticSeverity, InitializeParams, ProgressType, SymbolInformation, SymbolKind, } from 'vscode-languageserver/node';
 import { getGlobPattern } from './util/perl_utils';
@@ -232,20 +232,25 @@ class Analyzer {
         // connection.sendProgress(ProgressType.prototype._pr, 'tokendd', '32');
         // connection.onProgress();
 
-        try {
-          const fileContent = await fs.readFile(filePath, 'utf8');
-          let problems = await this.analyze(TextDocument.create(uri, 'perl', 1, fileContent), AnalyzeMode.OnWorkspaceOpen, settings);
-          problemsCounter = problemsCounter + problems.length;
-
-          if (settings.maxNumberOfProblems >= problemsCounter) {
-            connection.sendDiagnostics({
-              uri: uri,
-              diagnostics: problems,
-            });
+        fs.readFile(filePath, { encoding: 'utf8' }, async (err, fileContent) => {
+          if (err) {
+            connection.console.warn(`Failed to read file with error - ${err.message}`);
           }
-        } catch (error) {
-          connection.console.warn(`Failed analyzing ${uri}. Error: ${error.message}`)
-        }
+
+          try {
+            let problems = await this.analyze(TextDocument.create(uri, 'perl', 1, fileContent), AnalyzeMode.OnWorkspaceOpen, settings);
+            problemsCounter = problemsCounter + problems.length;
+  
+            if (settings.maxNumberOfProblems >= problemsCounter) {
+              connection.sendDiagnostics({
+                uri: uri,
+                diagnostics: problems,
+              });
+            }
+          } catch (error) {
+            connection.console.warn(`Failed analyzing ${uri}. Error: ${error.message}`)
+          }
+        });
       });
 
       connection.console.info(`Analyzer finished after ${getTimePassed()}`)
