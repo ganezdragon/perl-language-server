@@ -41,7 +41,7 @@ class Analyzer {
       this.uriToTree[uri] = tree;
     }
     // this.uriToVariableDeclarations[uri] = {};
-    this.uriToFunctionDeclarations[uri] = {};
+    // this.uriToFunctionDeclarations[uri] = {};
 
     // for each node do some analyses
     forEachNodeAnalyze(tree.rootNode, (node: Parser.SyntaxNode) => {
@@ -91,7 +91,7 @@ class Analyzer {
 
     findMissingNodes(tree.rootNode);
 
-    this.extractAndSetDeclarationsFromFile(document, tree.rootNode);
+    // this.extractAndSetDeclarationsFromFile(document, tree.rootNode);
 
     return problems;
 
@@ -155,13 +155,19 @@ class Analyzer {
     });
 
     functionDeclarationNodes.forEach(functionDeclarationNode => {
-      const functionName = functionDeclarationNode.childForFieldName('name')?.text;
+      const functionName: string | undefined = functionDeclarationNode.childForFieldName('name')?.text;
 
       if (!functionName) {
         return;
       }
 
-      let namedDeclarations = this.uriToFunctionDeclarations[uri][functionName] || [];
+      let namedDeclarations: SymbolInformation[] = this.uriToFunctionDeclarations[uri][functionName] || [];
+
+      // NOTE: to handle the `toString` reserved words coming as functionName
+      // TODO: change this, when Hash Map data structure is implemented
+      if (! Array.isArray(namedDeclarations)) {
+        namedDeclarations = [];
+      }
 
       namedDeclarations.push(
         SymbolInformation.create(
@@ -226,9 +232,8 @@ class Analyzer {
 
       // analyze each file
       let problemsCounter: number = 0;
+      let fileCounter: number = 0; // TODO: come up with a better approach
       filePaths.forEach(async (filePath) => {
-        const uri = `file://${filePath}`;
-        connection.console.info(`Analyzing ${uri}`);
         // connection.sendProgress(ProgressType.prototype._pr, 'tokendd', '32');
         // connection.onProgress();
 
@@ -236,6 +241,8 @@ class Analyzer {
           if (err) {
             connection.console.warn(`Failed to read file with error - ${err.message}`);
           }
+
+          const uri = `file://${filePath}`;
 
           try {
             let problems = await this.analyze(TextDocument.create(uri, 'perl', 1, fileContent), AnalyzeMode.OnWorkspaceOpen, settings);
@@ -247,13 +254,24 @@ class Analyzer {
                 diagnostics: problems,
               });
             }
-          } catch (error) {
+          }
+          catch (error) {
+            fileCounter = fileCounter + 1;
+
             connection.console.warn(`Failed analyzing ${uri}. Error: ${error.message}`)
+          }
+          finally {
+            fileCounter = fileCounter + 1;
+
+            connection.console.info(`Analyzed file ${uri}, prob - ${problemsCounter}, fileC - ${fileCounter}, goal - ${filePaths.length}, mem - ${process.memoryUsage().heapUsed / 1024 / 1024} MB`);
+
+            if (fileCounter === filePaths.length) {
+              connection.console.info(`Analyzer finished after ${getTimePassed()}`);
+            }
           }
         });
       });
-
-      connection.console.info(`Analyzer finished after ${getTimePassed()}`)
+      
     }
   }
 
