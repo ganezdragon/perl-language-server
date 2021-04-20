@@ -6,6 +6,9 @@ import { getGlobPattern } from './util/perl_utils';
 import { getFilesFromPath } from './util/file';
 import { forEachNode, forEachNodeAnalyze, getRangeForNode } from './util/tree_sitter_utils';
 import { AnalyzeMode, CachingStrategy, ExtensionSettings, FileDeclarations, URIToTree } from './types/common.types';
+import PromisePool = require('@supercharge/promise-pool');
+import { promisify } from 'util';
+const fsPromise = promisify(fs.readFile);
 
 class Analyzer {
   // dependencies
@@ -40,6 +43,7 @@ class Analyzer {
     if (settings.caching === CachingStrategy.eager && mode == AnalyzeMode.OnFileOpen) {
       this.uriToTree[uri] = tree;
     }
+
     // this.uriToVariableDeclarations[uri] = {};
     // this.uriToFunctionDeclarations[uri] = {};
 
@@ -117,8 +121,8 @@ class Analyzer {
     // TODO: get clear on variable cache strategy
     if (0) {
       variableDeclarationNodes = [
-      ...rootNode.descendantsOfType('multi_var_declaration'),
-      ...rootNode.descendantsOfType('single_var_declaration'),
+        ...rootNode.descendantsOfType('multi_var_declaration'),
+        ...rootNode.descendantsOfType('single_var_declaration'),
       ];
     }
 
@@ -167,7 +171,7 @@ class Analyzer {
 
       // NOTE: to handle the `toString` reserved words coming as functionName
       // TODO: change this, when Hash Map data structure is implemented
-      if (! Array.isArray(namedDeclarations)) {
+      if (!Array.isArray(namedDeclarations)) {
         namedDeclarations = [];
       }
 
@@ -235,13 +239,20 @@ class Analyzer {
       // analyze each file
       let problemsCounter: number = 0;
       let fileCounter: number = 0; // TODO: come up with a better approach
-      filePaths.forEach(async (filePath) => {
-        // connection.sendProgress(ProgressType.prototype._pr, 'tokendd', '32');
-        // connection.onProgress();
 
-        fs.readFile(filePath, { encoding: 'utf8' }, async (err, fileContent) => {
-          if (err) {
-            connection.console.warn(`Failed to read file with error - ${err.message}`);
+      await PromisePool
+        .withConcurrency(500)
+        .for(filePaths)
+        .process(async (filePath): Promise<void> => {
+
+          let fileContent: string;
+          try {
+            fileContent = await fsPromise(filePath, { encoding: 'utf-8' });
+          }
+          catch (error) {
+            connection.console.warn(`Failed to read file with error - ${error.message}`);
+
+            return;
           }
 
           const uri = `file://${filePath}`;
@@ -249,7 +260,7 @@ class Analyzer {
           try {
             let problems = await this.analyze(TextDocument.create(uri, 'perl', 1, fileContent), AnalyzeMode.OnWorkspaceOpen, settings);
             problemsCounter = problemsCounter + problems.length;
-  
+
             if (settings.maxNumberOfProblems >= problemsCounter) {
               connection.sendDiagnostics({
                 uri: uri,
@@ -265,15 +276,12 @@ class Analyzer {
           finally {
             fileCounter = fileCounter + 1;
 
-            connection.console.info(`Analyzed file ${uri}, prob - ${problemsCounter}, fileC - ${fileCounter}, goal - ${filePaths.length}, mem - ${process.memoryUsage().heapUsed / 1024 / 1024} MB`);
+            connection.console.info(`Analyzed file ${uri} , prob - ${problemsCounter}, fileC - ${fileCounter}, goal - ${filePaths.length}, mem - ${process.memoryUsage().heapUsed / 1024 / 1024} MB`);
 
-            if (fileCounter === filePaths.length) {
-              connection.console.info(`Analyzer finished after ${getTimePassed()}`);
-            }
           }
         });
-      });
-      
+
+      connection.console.info(`Analyzer finished after ${getTimePassed()}`);
     }
   }
 
