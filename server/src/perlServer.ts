@@ -81,7 +81,7 @@ export default class PerlServer {
     // when the text document first opened or when its content has changed.
     this.documents.onDidChangeContent(async (change) => {
       const settings = await this.getDocumentSettings('all');
-      const diagnosis = await this.analyzer.analyze(TextDocument.create(change.document.uri,  'perl', 1, change.document.getText()), AnalyzeMode.OnFileOpen, settings);
+      const diagnosis = await this.analyzer.analyze(TextDocument.create(change.document.uri,  'perl', 1, change.document.getText()), settings);
 
       this.connection.sendDiagnostics({
         uri: change.document.uri,

@@ -1,7 +1,7 @@
 import * as Parser from 'web-tree-sitter';
 import * as fs from 'graceful-fs';
 import { TextDocument } from 'vscode-languageserver-textdocument';
-import { Connection, Definition, Diagnostic, DiagnosticSeverity, InitializeParams, ProgressType, SymbolInformation, SymbolKind, } from 'vscode-languageserver/node';
+import { Connection, Definition, Diagnostic, DiagnosticSeverity, InitializeParams, SymbolInformation, SymbolKind, } from 'vscode-languageserver/node';
 import { getGlobPattern } from './util/perl_utils';
 import { getFilesFromPath } from './util/file';
 import { forEachNode, forEachNodeAnalyze, getRangeForNode } from './util/tree_sitter_utils';
@@ -32,7 +32,13 @@ class Analyzer {
    * @param document the document to analyze
    * @param settings the ExtensionSettings
    */
-  async analyze(document: TextDocument, mode: AnalyzeMode, settings: ExtensionSettings): Promise<Diagnostic[]> {
+  async analyze(
+    document: TextDocument,
+    settings: ExtensionSettings,
+    mode: AnalyzeMode = AnalyzeMode.OnFileOpen,
+    getProblems: boolean = true,
+  ): Promise<Diagnostic[]> {
+
     let problems: Diagnostic[] = [];
     const content: string = document.getText();
     const uri: string = document.uri;
@@ -40,36 +46,13 @@ class Analyzer {
     let tree: Parser.Tree = this.parser.parse(content);
 
     // TODO: don't cache as of now for performance reasons
-    if (settings.caching === CachingStrategy.eager && mode == AnalyzeMode.OnFileOpen) {
-      this.uriToTree[uri] = tree;
+    if (settings.caching === CachingStrategy.full || mode == AnalyzeMode.OnFileOpen) {
+      this.uriToTree[uri] = tree.copy();
     }
 
     // this.uriToVariableDeclarations[uri] = {};
-    // this.uriToFunctionDeclarations[uri] = {};
+    this.uriToFunctionDeclarations[uri] = {};
 
-    // for each node do some analyses
-    forEachNodeAnalyze(tree.rootNode, (node: Parser.SyntaxNode) => {
-      if (node.type === 'ERROR') {
-        if (node.toString().includes('UNEXPECTED')) {
-          problems.push(
-            Diagnostic.create(
-              getRangeForNode(node),
-              `Syntax Error: Unexpected character ${node.text}`,
-              DiagnosticSeverity.Error,
-            ),
-          );
-        }
-        else {
-          problems.push(
-            Diagnostic.create(
-              getRangeForNode(node),
-              `Syntax Error near expression ${node.text}`,
-              DiagnosticSeverity.Error,
-            )
-          );
-        }
-      }
-    });
 
     /**
      * Parses the tree and pushes into the problems array,
@@ -93,10 +76,37 @@ class Analyzer {
       }
     }
 
-    findMissingNodes(tree.rootNode);
+    if (getProblems) {
+      // for each node do some analyses
+      forEachNodeAnalyze(tree.rootNode, (node: Parser.SyntaxNode) => {
+        if (node.type === 'ERROR') {
+          if (node.toString().includes('UNEXPECTED')) {
+            problems.push(
+              Diagnostic.create(
+                getRangeForNode(node),
+                `Syntax Error: Unexpected character ${node.text}`,
+                DiagnosticSeverity.Error,
+              ),
+            );
+          }
+          else {
+            problems.push(
+              Diagnostic.create(
+                getRangeForNode(node),
+                `Syntax Error near expression ${node.text}`,
+                DiagnosticSeverity.Error,
+              )
+            );
+          }
+        }
+      });
 
-    // this.extractAndSetDeclarationsFromFile(document, tree.rootNode);
+      findMissingNodes(tree.rootNode);
+    }
 
+    this.extractAndSetDeclarationsFromFile(document, tree.rootNode);
+
+    // free up those heap memory
     tree.delete();
 
     return problems;
@@ -239,6 +249,7 @@ class Analyzer {
       // analyze each file
       let problemsCounter: number = 0;
       let fileCounter: number = 0; // TODO: come up with a better approach
+      let getProblems: boolean = true;
 
       await PromisePool
         .withConcurrency(500)
@@ -258,14 +269,24 @@ class Analyzer {
           const uri = `file://${filePath}`;
 
           try {
-            let problems = await this.analyze(TextDocument.create(uri, 'perl', 1, fileContent), AnalyzeMode.OnWorkspaceOpen, settings);
+            let problems = await this.analyze(
+              TextDocument.create(uri, 'perl', 1, fileContent),
+              settings,
+              AnalyzeMode.OnWorkspaceOpen,
+              getProblems,
+            );
             problemsCounter = problemsCounter + problems.length;
 
             if (settings.maxNumberOfProblems >= problemsCounter) {
+              getProblems = true;
+
               connection.sendDiagnostics({
                 uri: uri,
                 diagnostics: problems,
               });
+            }
+            else {
+              getProblems = false;
             }
           }
           catch (error) {
