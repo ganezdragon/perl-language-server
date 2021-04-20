@@ -93,6 +93,8 @@ class Analyzer {
 
     // this.extractAndSetDeclarationsFromFile(document, tree.rootNode);
 
+    tree.delete();
+
     return problems;
 
   }
