@@ -8,6 +8,7 @@ import { forEachNode, forEachNodeAnalyze, getRangeForNode } from './util/tree_si
 import { AnalyzeMode, CachingStrategy, ExtensionSettings, FileDeclarations, URIToTree } from './types/common.types';
 import PromisePool = require('@supercharge/promise-pool');
 import { promisify } from 'util';
+import { SyntaxNode } from 'web-tree-sitter';
 const fsPromise = promisify(fs.readFile);
 
 class Analyzer {
@@ -171,11 +172,13 @@ class Analyzer {
     });
 
     functionDeclarationNodes.forEach(functionDeclarationNode => {
-      const functionName: string | undefined = functionDeclarationNode.childForFieldName('name')?.text;
-
-      if (!functionName) {
+      const functionNameNode: SyntaxNode | null = functionDeclarationNode.childForFieldName('name');
+      
+      if (!functionNameNode) {
         return;
       }
+      
+      const functionName: string = functionNameNode.text;
 
       let namedDeclarations: SymbolInformation[] = this.uriToFunctionDeclarations[uri][functionName] || [];
 
@@ -189,7 +192,7 @@ class Analyzer {
         SymbolInformation.create(
           functionName,
           SymbolKind.Function,
-          getRangeForNode(functionDeclarationNode),
+          getRangeForNode(functionNameNode),
           uri,
           functionDeclarationNode.parent?.text
         ),
