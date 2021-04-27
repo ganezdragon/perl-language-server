@@ -1,15 +1,20 @@
-# perl-language-server
+# Perl IDE
 
 A simple perl language server written in typescript, with a client that's also written in typescript. Intended to be used with vs code, but could be extended.
 
 ## Features
 
-- Syntax highlighting (still in beta)
+- Syntax check (beta)
 - Function Navigation
 - Variable Navigation (beta)
 
 
 > Other features coming up in the alpha release
+
+## Upcoming features
+- Integrated debugger
+- Code completion
+- Much more to come
 
 ## Requirements
 

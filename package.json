@@ -1,8 +1,8 @@
 {
   "name": "perl-language-server",
-  "displayName": "Perl Language Server",
-  "description": "a simple javascript based language server for perl",
-  "version": "0.1.1",
+  "displayName": "Perl IDE",
+  "description": "Perl IDE (beta)",
+  "version": "0.1.2",
   "scripts": {
     "compile": "tsc -b",
     "clean": "rm -rf server/out && rm -rf client/out",
