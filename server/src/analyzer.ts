@@ -6,7 +6,6 @@ import { getGlobPattern } from './util/perl_utils';
 import { getFilesFromPath } from './util/file';
 import { forEachNode, forEachNodeAnalyze, getRangeForNode } from './util/tree_sitter_utils';
 import { AnalyzeMode, CachingStrategy, ExtensionSettings, FileDeclarations, URIToTree } from './types/common.types';
-import PromisePool = require('@supercharge/promise-pool');
 import { promisify } from 'util';
 import { SyntaxNode } from 'web-tree-sitter';
 const fsPromise = promisify(fs.readFile);
@@ -254,11 +253,7 @@ class Analyzer {
       let fileCounter: number = 0; // TODO: come up with a better approach
       let getProblems: boolean = true;
 
-      await PromisePool
-        .withConcurrency(500)
-        .for(filePaths)
-        .process(async (filePath): Promise<void> => {
-
+      filePaths.forEach(async (filePath): Promise<void> => {
           let fileContent: string;
           try {
             fileContent = await fsPromise(filePath, { encoding: 'utf-8' });
@@ -302,10 +297,11 @@ class Analyzer {
 
             connection.console.info(`Analyzed file ${uri} , prob - ${problemsCounter}, fileC - ${fileCounter}, goal - ${filePaths.length}, mem - ${process.memoryUsage().heapUsed / 1024 / 1024} MB`);
 
+          if (fileCounter === filePaths.length) {
+              connection.console.info(`Analyzer finished after ${getTimePassed()}`);
+            }
           }
         });
-
-      connection.console.info(`Analyzer finished after ${getTimePassed()}`);
     }
   }
 
