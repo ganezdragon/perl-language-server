@@ -218,6 +218,9 @@ class Analyzer {
 
     const workspaceFolders: InitializeParams['workspaceFolders'] = params.workspaceFolders;
     if (workspaceFolders) {
+      const progress = await connection.window.createWorkDoneProgress();
+      progress.begin('Indexing perl files', 0, 'Starting up...', undefined);
+
       const globPattern = getGlobPattern();
 
       const lookupStartTime = Date.now()
@@ -247,10 +250,13 @@ class Analyzer {
           )
         }
       }
+      // NOTE: Just for testing
+      // await new Promise(resolve => setTimeout(resolve, 10000));
 
       // analyze each file
       let problemsCounter: number = 0;
       let fileCounter: number = 0; // TODO: come up with a better approach
+      let totalFiles: number = filePaths.length;
       let getProblems: boolean = true;
 
       filePaths.forEach(async (filePath): Promise<void> => {
@@ -295,10 +301,14 @@ class Analyzer {
           finally {
             fileCounter = fileCounter + 1;
 
-            connection.console.info(`Analyzed file ${uri} , prob - ${problemsCounter}, fileC - ${fileCounter}, goal - ${filePaths.length}, mem - ${process.memoryUsage().heapUsed / 1024 / 1024} MB`);
+            connection.console.info(`Analyzed file ${uri} , prob - ${problemsCounter}, fileC - ${fileCounter}, goal - ${totalFiles}, mem - ${process.memoryUsage().heapUsed / 1024 / 1024} MB`);
+
+            let percentage: number = Math.round( (fileCounter / totalFiles) * 100 );
+            progress.report(percentage, `in progress - ${percentage}%`);
 
           if (fileCounter === filePaths.length) {
               connection.console.info(`Analyzer finished after ${getTimePassed()}`);
+              progress.done();
             }
           }
         });
