@@ -29,6 +29,12 @@
     "configuration": {
       "title": "Perl",
       "properties": {
+        "perl.showAllErrors": {
+          "scope": "window",
+          "type": "boolean",
+          "default": false,
+          "description": "(Experimental) Since the perl parser is still evolving, the parser could throw errors on valid token. So we are disabling this by default, and having minimal features. Enable it to get the full parser features currently experimental."
+        },
         "perl.maxNumberOfProblems": {
           "scope": "resource",
           "type": "number",
@@ -60,6 +66,16 @@
         ],
         "configuration": "./language-configuration.json"
       }
+    ],
+    "snippets": [
+      {
+        "language": "perl",
+        "path": "./server/src/snippets/basic.json"
+      }
     ]
+  },
+  "devDependencies": {
+    "typescript": "^4.3.2",
+    "vsce": "^1.88.0"
   }
 }

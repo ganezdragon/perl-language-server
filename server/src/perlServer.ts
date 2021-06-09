@@ -1,6 +1,6 @@
 import { setTimeout } from "timers";
 import { TextDocument } from "vscode-languageserver-textdocument";
-import { ClientCapabilities, Connection, Definition, DefinitionParams, InitializeParams, TextDocuments } from "vscode-languageserver/node";
+import { ClientCapabilities, CompletionItem, CompletionParams, Connection, Definition, DefinitionParams, InitializeParams, SymbolKind, TextDocuments } from "vscode-languageserver/node";
 import * as Parser from 'web-tree-sitter';
 import Analyzer from "./analyzer";
 import { initializeParser } from "./parser";
@@ -17,7 +17,7 @@ export default class PerlServer {
   // The global settings, used when the `workspace/configuration` request is not supported by the client.
   // Please note that this is not the case when using this server with the client provided in this example
   // but could happen with other clients.
-  private defaultSettings: ExtensionSettings = { maxNumberOfProblems: 1000, caching: CachingStrategy.eager};
+  private defaultSettings: ExtensionSettings = { showAllErrors: false, maxNumberOfProblems: 1000, caching: CachingStrategy.eager};
   private globalSettings: ExtensionSettings = this.defaultSettings;
 
   // Cache the settings of all open documents
@@ -96,6 +96,8 @@ export default class PerlServer {
 
     // all feature related registrations
     this.connection.onDefinition(this.onDefinition.bind(this));
+    this.connection.onCompletion(this.onCompletion.bind(this));
+    this.connection.onCompletionResolve(this.onCompletionResolve.bind(this));
   }
 
   /**
@@ -115,6 +117,42 @@ export default class PerlServer {
     return this.analyzer.findDefinition(params.textDocument.uri, nodeAtPoint);
   }
 
+  private onCompletion(params: CompletionParams): CompletionItem[] {
+    let variableCompletions: CompletionItem[] = [];
+
+    if (params.context?.triggerKind === 2) {
+      // a possible scalar variable
+      if (params.context.triggerCharacter === '$') {
+        const nodeBefore = this.getNodeBeforePoint(params);
+        if (!nodeBefore) {
+          return [];
+        }
+
+        if (nodeBefore.previousSibling?.text.match(/scope/)) {
+          return [];
+        }
+
+        // const variables: Parser.SyntaxNode[] =  this.analyzer.getVariablesForCompletionAtCurrentNode(params.textDocument.uri, nodeBefore);
+
+        // variableCompletions = variables.map(variable => ({
+        //   label: variable.text,
+        //   kind: SymbolKind.Constant,
+        //   data: {
+        //     item: variable.text
+        //   }
+        // }));
+      }
+    }
+
+    return [
+      ...variableCompletions,
+    ];
+  }
+
+  private onCompletionResolve(item: CompletionItem) {
+    return item;
+  }
+
   /**
    * Returns the tree node at a given point.
    * 
@@ -127,6 +165,14 @@ export default class PerlServer {
       params.position.line,
       params.position.character,
     )
+  }
+
+  private getNodeBeforePoint(params: CompletionParams): Parser.SyntaxNode | null | undefined {
+    return this.analyzer.getNodeAtPoint(
+      params.textDocument.uri,
+      params.position.line,
+      Math.max(params.position.character - 1, 0),
+    );
   }
 
   /**

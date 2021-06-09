@@ -2,6 +2,7 @@ import { SymbolInformation } from "vscode-languageserver/node"
 import { Tree } from "web-tree-sitter";
 
 interface ExtensionSettings {
+  showAllErrors: boolean;
 	maxNumberOfProblems: number;
   caching: CachingStrategy;
 }

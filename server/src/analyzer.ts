@@ -77,6 +77,15 @@ class Analyzer {
     }
 
     if (getProblems) {
+      // find missing nodes even if we are not showing ALL problems (as of now)
+      findMissingNodes(tree.rootNode);
+    }
+
+    if (!settings.showAllErrors) {
+      getProblems = false;
+    }
+
+    if (getProblems) {
       // for each node do some analyses
       forEachNodeAnalyze(tree.rootNode, (node: Parser.SyntaxNode) => {
         if (node.type === 'ERROR') {
@@ -100,8 +109,6 @@ class Analyzer {
           }
         }
       });
-
-      findMissingNodes(tree.rootNode);
     }
 
     this.extractAndSetDeclarationsFromFile(document, tree.rootNode);
@@ -413,6 +420,22 @@ class Analyzer {
     }
 
     return symbols.map(symbol => symbol.location);
+  }
+
+  public getVariablesForCompletionAtCurrentNode(uri: string, nodePoint: Parser.SyntaxNode): Parser.SyntaxNode[] {
+    const variableDeclarationNodes: Parser.SyntaxNode[] = [
+      ...nodePoint.descendantsOfType('multi_var_declaration'),
+      ...nodePoint.descendantsOfType('single_var_declaration'),
+    ]
+
+    // while (nodePoint.parent) {
+    //   variableDeclarationNodes.push(...nodePoint.parent.descendantsOfType('multi_var_declaration'));
+    //   variableDeclarationNodes.push(...nodePoint.parent.descendantsOfType('single_var_declaration'));
+
+    //   nodePoint = nodePoint.parent;
+    // }
+
+    return variableDeclarationNodes;
   }
 }
 

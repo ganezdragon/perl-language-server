@@ -34,9 +34,10 @@ connection.onInitialize(async (params: InitializeParams): Promise<InitializeResu
 		capabilities: {
 			textDocumentSync: TextDocumentSyncKind.Incremental,
 			// Tell the client that this server supports code completion.
-			// completionProvider: {
-			// 	resolveProvider: true
-			// },
+			completionProvider: {
+				resolveProvider: true,
+				triggerCharacters: [ '$' ]
+			},
 
 			// goto definition
 			definitionProvider: true,
