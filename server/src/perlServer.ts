@@ -12,7 +12,7 @@ export default class PerlServer {
   private analyzer: Analyzer;
 
   // Begin ----- other properties
-  private documents: TextDocuments<TextDocument> = new TextDocuments(TextDocument);
+  private documents: TextDocuments<TextDocument>;
 
   // The global settings, used when the `workspace/configuration` request is not supported by the client.
   // Please note that this is not the case when using this server with the client provided in this example
@@ -33,8 +33,9 @@ export default class PerlServer {
    * This should be called from the initialize static
    * method only.
    */
-  private constructor(connection: Connection, analyzer: Analyzer) {
+  private constructor(connection: Connection, documents: TextDocuments<TextDocument>, analyzer: Analyzer) {
     this.connection = connection;
+    this.documents = documents;
     this.analyzer = analyzer;
   }
 
@@ -46,7 +47,7 @@ export default class PerlServer {
    * @param params the initialize params
    * @returns a PerlServer
    */
-  public static async initialize(connection: Connection, params: InitializeParams): Promise<PerlServer> {
+  public static async initialize(connection: Connection, documents: TextDocuments<TextDocument>, params: InitializeParams): Promise<PerlServer> {
     // first initialize the parser once and pass as dependency
     const parser: Parser = await initializeParser();
 
@@ -58,7 +59,7 @@ export default class PerlServer {
     
     analyzer.analyzeFromWorkspace(connection, params, settings); // doing this async
 
-    const server: PerlServer = new PerlServer(connection, analyzer);
+    const server: PerlServer = new PerlServer(connection, documents, analyzer);
 
     return server;
   }
@@ -72,10 +73,6 @@ export default class PerlServer {
     this.hasConfigurationCapability = !!(
       capabilities.workspace && !!capabilities.workspace.configuration
     );
-
-    // Make the text document manager listen on the connection
-    // for open, change and close text document events
-    this.documents.listen(this.connection);
 
     // The content of a text document has changed. This event is emitted
     // when the text document first opened or when its content has changed.

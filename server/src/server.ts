@@ -3,8 +3,11 @@
  * Other perl language core server features would be implemented in
  * the perlServer.ts file.
  */
-import { createConnection, DidChangeConfigurationNotification, InitializeParams, InitializeResult, ProposedFeatures, TextDocumentSyncKind } from 'vscode-languageserver/node';
+import { TextDocument } from 'vscode-languageserver-textdocument';
+import { createConnection, DidChangeConfigurationNotification, InitializeParams, InitializeResult, ProposedFeatures, TextDocuments, TextDocumentSyncKind } from 'vscode-languageserver/node';
 import PerlServer from './perlServer';
+
+const documents: TextDocuments<TextDocument> = new TextDocuments(TextDocument);
 
 // Create the connection for the server
 const connection = createConnection(ProposedFeatures.all);
@@ -54,7 +57,7 @@ connection.onInitialize(async (params: InitializeParams): Promise<InitializeResu
 	// Initialize the Perl Server
 	connection.console.info(`Initializing the Perl Language Server`);
 
-	PerlServer.initialize(connection, params)
+	PerlServer.initialize(connection, documents, params)
 		.then(server => {
 			server.register(capabilities);
 		});
@@ -91,11 +94,14 @@ connection.onDidChangeConfiguration((change) => {
 	// documents.all().forEach(validateTextDocument);
 });
 
-
 connection.onDidChangeWatchedFiles(_change => {
 	// Monitored files have change in VSCode
 	connection.console.info('We received an file change event on a watched file');
 });
+
+// Make the text document manager listen on the connection
+// for open, change and close text document events
+documents.listen(connection);
 
 //Listen on the connection
 connection.listen();
