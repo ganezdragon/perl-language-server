@@ -53,6 +53,42 @@
         }
       }
     },
+    "breakpoints": [
+      {
+        "language": "perl"
+      }
+    ],
+    "debuggers": [
+      {
+        "type": "perl",
+        "label": "Debug Perl script",
+        "program": "./server/out/debugger/debugAdapter.js",
+        "runtime": "node",
+        "languages": [ "perl" ],
+        "configurationAttributes": {
+          "launch": {
+            "required": [
+              "program"
+            ],
+            "properties": {
+              "program": {
+                "type": "string",
+                "description": "Absolute path to a perl script.",
+                "default": "${workspaceFolder}/script.pl"
+              }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "perl",
+            "request": "launch",
+            "name": "Run Script",
+            "program": "${workspaceFolder}/script.pl"
+          }
+        ]
+      }
+    ],
     "languages": [
       {
         "id": "perl",

@@ -8,8 +8,11 @@
 		"node": "*"
 	},
 	"dependencies": {
+		"await-notify": "^1.0.1",
 		"fast-glob": "^3.2.5",
 		"graceful-fs": "^4.2.6",
+		"vscode-debugadapter": "^1.47.0",
+		"vscode-debugprotocol": "^1.47.0",
 		"vscode-languageserver": "^7.0.0",
 		"vscode-languageserver-textdocument": "^1.0.1",
 		"web-tree-sitter": "^0.19.3"
