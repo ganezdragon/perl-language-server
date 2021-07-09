@@ -38,7 +38,7 @@ export class PerlDebugSession extends LoggingDebugSession {
 		this.setDebuggerLinesStartAt1(false);
 		this.setDebuggerColumnsStartAt1(false);
 
-    this._runtime = new PerlRuntime();
+    this._runtime = new PerlRuntime(this);
 
     // setup event handlers
 		this._runtime.on('stopOnEntry', () => {
@@ -174,7 +174,7 @@ export class PerlDebugSession extends LoggingDebugSession {
 		await this._configurationDone.wait(1000);
 
 		// start the program in the runtime
-		await this._runtime.start(args, this);
+		await this._runtime.start(args);
 
 		this.sendResponse(response);
 	}
