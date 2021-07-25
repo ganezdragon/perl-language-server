@@ -1,8 +1,9 @@
+import { ChildProcess } from 'child_process';
 import { basename } from 'path';
 import { BreakpointEvent, InitializedEvent, Logger, logger, LoggingDebugSession, OutputEvent, Source, StoppedEvent, TerminatedEvent } from 'vscode-debugadapter';
 import { DebugProtocol } from 'vscode-debugprotocol';
-const { Subject } = require('await-notify');
 import { IPerlBreakpoint, PerlRuntime } from './perlRuntime';
+const { Subject } = require('await-notify');
 
 /**
  * This interface describes the mock-debug specific launch attributes
@@ -24,6 +25,8 @@ export class PerlDebugSession extends LoggingDebugSession {
 	private static threadID = 1;
 
 	private _runtime: PerlRuntime;
+
+	// private proxyProcess: ChildProcess;
 
 	private _configurationDone = new Subject();
 
@@ -176,6 +179,11 @@ export class PerlDebugSession extends LoggingDebugSession {
 		// start the program in the runtime
 		await this._runtime.start(args);
 
+		this.sendResponse(response);
+	}
+
+	protected stepInRequest(response: DebugProtocol.StepInResponse, args: DebugProtocol.StepInArguments): void {
+		// this.adapter.request('s');
 		this.sendResponse(response);
 	}
 

@@ -35,6 +35,7 @@ export class PerlRuntime extends EventEmitter {
 	private _namedException: string | undefined;
 	private _otherExceptions = false;
 
+	// dependencies to be injected
 	private session: PerlDebugSession;
 
 	constructor(session: PerlDebugSession) {
