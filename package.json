@@ -45,7 +45,10 @@
           "scope": "machine-overridable",
           "type": "string",
           "default": "eager",
-          "enum": ["full", "eager"],
+          "enum": [
+            "full",
+            "eager"
+          ],
           "enumDescriptions": [
             "Caches the entire workspace source tree. For a large workspace this could crash the server",
             "Caches only the opened files. This will be still fast."
@@ -64,7 +67,9 @@
         "label": "Debug Perl script",
         "program": "./server/out/debugger/debugAdapter.js",
         "runtime": "node",
-        "languages": [ "perl" ],
+        "languages": [
+          "perl"
+        ],
         "configurationAttributes": {
           "launch": {
             "required": [
