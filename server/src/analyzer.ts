@@ -323,6 +323,19 @@ class Analyzer {
   }
 
   /**
+   * Returns the tree for a given URI file
+   *
+   * @function getTreeFromURI
+   * @returns Tree
+   */
+  public getTreeFromURI(uri: string): Parser.Tree {
+    if (!this.uriToTree[uri]) {
+      // this.uriToTree[uri] = this.parser.parse(`input`);
+    }
+    return this.uriToTree[uri];
+  }
+
+  /**
    * Gets and returns the Syntax Node from the tree, at a given point.
    * 
    * @param uri the uri string
@@ -331,9 +344,9 @@ class Analyzer {
    * @returns SyntaxNode or null
    */
   public getNodeAtPoint(uri: string, line: number, column: number): Parser.SyntaxNode | null {
-    const tree: Parser.Tree = this.uriToTree[uri];
+    const tree: Parser.Tree = this.getTreeFromURI(uri);
 
-    if (!tree.rootNode) {
+    if (!tree?.rootNode) {
       // Check for lacking rootNode (due to failed parse?)
       return null;
     }

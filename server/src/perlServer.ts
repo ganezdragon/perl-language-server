@@ -44,6 +44,7 @@ export default class PerlServer {
    * 
    * @static
    * @param connection the connection object
+   * @param documents the documents manager
    * @param params the initialize params
    * @returns a PerlServer
    */
