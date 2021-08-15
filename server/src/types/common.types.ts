@@ -1,4 +1,4 @@
-import { SymbolInformation } from "vscode-languageserver/node"
+import { SymbolInformation, URI } from "vscode-languageserver/node"
 import { Tree } from "web-tree-sitter";
 
 interface ExtensionSettings {
@@ -17,16 +17,10 @@ enum AnalyzeMode {
   OnWorkspaceOpen = "OnWorkspaceOpen",
 }
 
-type Declarations = {
-  [name: string]: SymbolInformation[];
-};
-type FileDeclarations = {
-  [uri: string]: Declarations
-}
+type Declarations = Map<string, SymbolInformation[]>;
+type FileDeclarations = Map<URI, Declarations>;
 
-type URIToTree = {
-  [uri: string]: Tree
-};
+type URIToTree = Map<URI, Tree>;
 
 interface WordWithType {
   type: string;
