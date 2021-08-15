@@ -60,9 +60,7 @@ export default class PerlServer {
     
     analyzer.analyzeFromWorkspace(connection, params, settings); // doing this async
 
-    const server: PerlServer = new PerlServer(connection, documents, analyzer);
-
-    return server;
+    return new PerlServer(connection, documents, analyzer);
   }
 
   /**
@@ -105,8 +103,8 @@ export default class PerlServer {
    * @param params the DefinitionParams
    * @returns Definition or null
    */
-  private onDefinition(params: DefinitionParams): Definition | null {
-    const nodeAtPoint = this.getNodeAtPoint(params);
+  private async onDefinition(params: DefinitionParams): Promise<Definition | null> {
+    const nodeAtPoint = await this.getNodeAtPoint(params);
 
     if (!nodeAtPoint) {
       return null;
@@ -115,13 +113,13 @@ export default class PerlServer {
     return this.analyzer.findDefinition(params.textDocument.uri, nodeAtPoint);
   }
 
-  private onCompletion(params: CompletionParams): CompletionItem[] {
+  private async onCompletion(params: CompletionParams): Promise<CompletionItem[]> {
     let variableCompletions: CompletionItem[] = [];
 
     if (params.context?.triggerKind === 2) {
       // a possible scalar variable
       if (params.context.triggerCharacter === '$') {
-        const nodeBefore = this.getNodeBeforePoint(params);
+        const nodeBefore = await this.getNodeBeforePoint(params);
         if (!nodeBefore) {
           return [];
         }
@@ -157,7 +155,7 @@ export default class PerlServer {
    * @param params the DefinitionParams
    * @returns the SyntaxNode or null
    */
-  private getNodeAtPoint(params: DefinitionParams): Parser.SyntaxNode | null {
+  private async getNodeAtPoint(params: DefinitionParams): Promise<Parser.SyntaxNode | null> {
     return this.analyzer.getNodeAtPoint(
       params.textDocument.uri,
       params.position.line,
@@ -165,7 +163,7 @@ export default class PerlServer {
     )
   }
 
-  private getNodeBeforePoint(params: CompletionParams): Parser.SyntaxNode | null | undefined {
+  private async getNodeBeforePoint(params: CompletionParams): Promise<Parser.SyntaxNode | null | undefined> {
     return this.analyzer.getNodeAtPoint(
       params.textDocument.uri,
       params.position.line,

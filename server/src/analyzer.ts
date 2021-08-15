@@ -7,7 +7,7 @@ import { getFilesFromPath } from './util/file';
 import { forEachNode, forEachNodeAnalyze, getRangeForNode } from './util/tree_sitter_utils';
 import { AnalyzeMode, CachingStrategy, ExtensionSettings, FileDeclarations, URIToTree } from './types/common.types';
 import { promisify } from 'util';
-import { SyntaxNode } from 'web-tree-sitter';
+import { fileURLToPath } from 'url';
 const fsPromise = promisify(fs.readFile);
 
 class Analyzer {
@@ -178,7 +178,7 @@ class Analyzer {
     });
 
     functionDeclarationNodes.forEach(functionDeclarationNode => {
-      const functionNameNode: SyntaxNode | null = functionDeclarationNode.childForFieldName('name');
+      const functionNameNode: Parser.SyntaxNode | null = functionDeclarationNode.childForFieldName('name');
       
       if (!functionNameNode) {
         return;
@@ -326,11 +326,24 @@ class Analyzer {
    * Returns the tree for a given URI file
    *
    * @function getTreeFromURI
+   * @param uri the uri string
    * @returns Tree
    */
-  public getTreeFromURI(uri: string): Parser.Tree {
+  public async getTreeFromURI(uri: string): Promise<Parser.Tree> {
     if (!this.uriToTree[uri]) {
-      // this.uriToTree[uri] = this.parser.parse(`input`);
+      let fileContent: string = '';
+      try {
+        fileContent = await fsPromise(fileURLToPath(uri), { encoding: 'utf-8' });
+
+      } catch (error) {
+        console.error(`Error while getting tree for current file - ${error}`);
+      }
+      const tree: Parser.Tree = this.parser.parse(fileContent);
+
+      this.uriToTree[uri] = tree.copy();
+
+      // free the memory up
+      tree.delete();
     }
     return this.uriToTree[uri];
   }
@@ -343,17 +356,15 @@ class Analyzer {
    * @param column the column of the change
    * @returns SyntaxNode or null
    */
-  public getNodeAtPoint(uri: string, line: number, column: number): Parser.SyntaxNode | null {
-    const tree: Parser.Tree = this.getTreeFromURI(uri);
+  public async getNodeAtPoint(uri: string, line: number, column: number): Promise<Parser.SyntaxNode | null> {
+    const tree: Parser.Tree = await this.getTreeFromURI(uri);
 
     if (!tree?.rootNode) {
       // Check for lacking rootNode (due to failed parse?)
       return null;
     }
 
-    const node: Parser.SyntaxNode = tree.rootNode.descendantForPosition({ row: line, column });
-
-    return node;
+    return tree.rootNode.descendantForPosition({ row: line, column });
   }
 
   /**
@@ -408,8 +419,6 @@ class Analyzer {
               ),
             );
             gotTheVariable = true;
-
-            return;
           }
         });
       });
