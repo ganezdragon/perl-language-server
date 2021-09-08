@@ -7,7 +7,7 @@ import { getFilesFromPath } from './util/file';
 import { forEachNode, forEachNodeAnalyze, getRangeForNode } from './util/tree_sitter_utils';
 import { AnalyzeMode, CachingStrategy, ExtensionSettings, FileDeclarations, URIToTree } from './types/common.types';
 import { promisify } from 'util';
-import { SyntaxNode } from 'web-tree-sitter';
+import { fileURLToPath } from 'url';
 const fsPromise = promisify(fs.readFile);
 
 class Analyzer {
@@ -15,9 +15,9 @@ class Analyzer {
   private parser: Parser;
 
   // other properties
-  private uriToTree: URIToTree = {};
-  private uriToVariableDeclarations: FileDeclarations = {};
-  private uriToFunctionDeclarations: FileDeclarations = {};
+  private uriToTree: URIToTree = new Map();
+  private uriToVariableDeclarations: FileDeclarations = new Map();
+  private uriToFunctionDeclarations: FileDeclarations = new Map();
 
   /**
    * The constructor which injects the dependencies
@@ -47,11 +47,11 @@ class Analyzer {
 
     // TODO: don't cache as of now for performance reasons
     if (settings.caching === CachingStrategy.full || mode == AnalyzeMode.OnFileOpen) {
-      this.uriToTree[uri] = tree.copy();
+      this.uriToTree.set(uri, tree.copy());
     }
 
     // this.uriToVariableDeclarations[uri] = {};
-    this.uriToFunctionDeclarations[uri] = {};
+    this.uriToFunctionDeclarations.set(uri, new Map());
 
 
     /**
@@ -161,7 +161,7 @@ class Analyzer {
       variableNodes.forEach(variableNode => {
         const variableName: string = variableNode.text;
 
-        let namedDeclarations = this.uriToVariableDeclarations[uri][variableName] || [];
+        let namedDeclarations = this.uriToVariableDeclarations.get(uri)?.get(variableName) || [];
 
         namedDeclarations.push(
           SymbolInformation.create(
@@ -173,12 +173,16 @@ class Analyzer {
           ),
         );
 
-        this.uriToVariableDeclarations[uri][variableName] = namedDeclarations;
+        const existingVariables = this.uriToVariableDeclarations.get(uri);
+        existingVariables?.set(variableName, namedDeclarations);
+        if (existingVariables) {
+          this.uriToVariableDeclarations.set(uri, existingVariables);
+        }
       });
     });
 
     functionDeclarationNodes.forEach(functionDeclarationNode => {
-      const functionNameNode: SyntaxNode | null = functionDeclarationNode.childForFieldName('name');
+      const functionNameNode: Parser.SyntaxNode | null = functionDeclarationNode.childForFieldName('name');
       
       if (!functionNameNode) {
         return;
@@ -186,13 +190,7 @@ class Analyzer {
       
       const functionName: string = functionNameNode.text;
 
-      let namedDeclarations: SymbolInformation[] = this.uriToFunctionDeclarations[uri][functionName] || [];
-
-      // NOTE: to handle the `toString` reserved words coming as functionName
-      // TODO: change this, when Hash Map data structure is implemented
-      if (!Array.isArray(namedDeclarations)) {
-        namedDeclarations = [];
-      }
+      let namedDeclarations: SymbolInformation[] = this.uriToFunctionDeclarations.get(uri)?.get(functionName) || [];
 
       namedDeclarations.push(
         SymbolInformation.create(
@@ -204,7 +202,11 @@ class Analyzer {
         ),
       );
 
-      this.uriToFunctionDeclarations[uri][functionName] = namedDeclarations;
+      const existingFunctions = this.uriToFunctionDeclarations.get(uri);
+      existingFunctions?.set(functionName, namedDeclarations);
+      if (existingFunctions) {
+        this.uriToFunctionDeclarations.set(uri, existingFunctions);
+      }
     });
   }
 
@@ -308,8 +310,8 @@ class Analyzer {
           finally {
             fileCounter = fileCounter + 1;
 
-            connection.console.info(`Analyzed file ${uri} , prob - ${problemsCounter}, fileC - ${fileCounter}, goal - ${totalFiles}, mem - ${process.memoryUsage().heapUsed / 1024 / 1024} MB`);
-
+            // connection.console.info(`Analyzed file ${uri} , prob - ${problemsCounter}, fileC - ${fileCounter}, goal - ${totalFiles}, mem - ${process.memoryUsage().heapUsed / 1024 / 1024} MB`);
+            
             let percentage: number = Math.round( (fileCounter / totalFiles) * 100 );
             progress.report(percentage, `in progress - ${percentage}%`);
 
@@ -323,6 +325,32 @@ class Analyzer {
   }
 
   /**
+   * Returns the tree for a given URI file
+   *
+   * @function getTreeFromURI
+   * @param uri the uri string
+   * @returns Tree
+   */
+  public async getTreeFromURI(uri: string): Promise<Parser.Tree | undefined> {
+    if (! this.uriToTree.has(uri)) {
+      let fileContent: string = '';
+      try {
+        fileContent = await fsPromise(fileURLToPath(uri), { encoding: 'utf-8' });
+
+      } catch (error) {
+        console.error(`Error while getting tree for current file - ${error}`);
+      }
+      const tree: Parser.Tree = this.parser.parse(fileContent);
+
+      this.uriToTree.set(uri, tree.copy());
+
+      // free the memory up
+      tree.delete();
+    }
+    return this.uriToTree.get(uri);
+  }
+
+  /**
    * Gets and returns the Syntax Node from the tree, at a given point.
    * 
    * @param uri the uri string
@@ -330,17 +358,15 @@ class Analyzer {
    * @param column the column of the change
    * @returns SyntaxNode or null
    */
-  public getNodeAtPoint(uri: string, line: number, column: number): Parser.SyntaxNode | null {
-    const tree: Parser.Tree = this.uriToTree[uri];
+  public async getNodeAtPoint(uri: string, line: number, column: number): Promise<Parser.SyntaxNode | null> {
+    const tree: Parser.Tree | undefined = await this.getTreeFromURI(uri);
 
-    if (!tree.rootNode) {
+    if (!tree?.rootNode) {
       // Check for lacking rootNode (due to failed parse?)
       return null;
     }
 
-    const node: Parser.SyntaxNode = tree.rootNode.descendantForPosition({ row: line, column });
-
-    return node;
+    return tree.rootNode.descendantForPosition({ row: line, column });
   }
 
   /**
@@ -395,8 +421,6 @@ class Analyzer {
               ),
             );
             gotTheVariable = true;
-
-            return;
           }
         });
       });
@@ -413,8 +437,8 @@ class Analyzer {
     }
     // else should be a function
     else {
-      Object.keys(this.uriToFunctionDeclarations).forEach(thisUri => {
-        const declarationNames: SymbolInformation[] = this.uriToFunctionDeclarations[thisUri][identifierName] || [];
+      this.uriToFunctionDeclarations.forEach((functionDeclaration, thisUri) => {
+        const declarationNames: SymbolInformation[] = functionDeclaration?.get(identifierName) || [];
         declarationNames.forEach(declaration => symbols.push(declaration));
       });
     }
