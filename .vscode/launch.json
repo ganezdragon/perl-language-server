@@ -27,29 +27,35 @@
 			"outFiles": ["${workspaceRoot}/server/out/**/*.js"]
     },
     {
-			"name": "Launch as debugger as server",
-			"type": "node",
-			"protocol": "inspector",
+      // not used
+			"name": "Extension with Debugger",
+			"type": "extensionHost",
 			"request": "launch",
-			"program": "${workspaceFolder}/server/out/debugger/debugAdapter.js",
+			"args": [
+				"--extensionDevelopmentPath=${workspaceFolder}"
+      ],
+      "program": "${workspaceFolder}/server/out/debugger/debugAdapter.js",
+			"outFiles": [
+				"${workspaceFolder}/client/out/**/*.js"
+			],
+			"preLaunchTask": "npm: watch"
+		},
+    {
+      // this work, now set debugServer property in your extension launched launch.json
+			"name": "Debugger Server",
+			"type": "node",
+			"request": "launch",
+			"cwd": "${workspaceFolder}",
+			"program": "${workspaceFolder}/server/src/debugger/debugAdapter.ts",
 			"args": [
 				"--server=4711"
 			],
 			"outFiles": [
-				"${workspaceFolder}/server/out/**/*.js"
+				"${workspaceFolder}/server/out/debugger/**/*.js"
 			],
-			"sourceMaps": true,
-			"smartStep": true
-		},
-    {
-      "name": "Attach to perl debugger by Process ID",
-      "processId": "${command:PickProcess}",
-      "request": "attach",
-      "skipFiles": [
-        "<node_internals>/**"
-      ],
-      "type": "pwa-node"
-    }
+      "sourceMaps": true,
+			"preLaunchTask": "npm: compile"
+		}
   ],
 	"compounds": [
 		{
