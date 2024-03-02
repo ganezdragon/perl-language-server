@@ -25,7 +25,37 @@
       "port": 6009,
 			"restart": true,
 			"outFiles": ["${workspaceRoot}/server/out/**/*.js"]
-    }
+    },
+    {
+      // not used
+			"name": "Extension with Debugger",
+			"type": "extensionHost",
+			"request": "launch",
+			"args": [
+				"--extensionDevelopmentPath=${workspaceFolder}"
+      ],
+      "program": "${workspaceFolder}/server/out/debugger/debugAdapter.js",
+			"outFiles": [
+				"${workspaceFolder}/client/out/**/*.js"
+			],
+			"preLaunchTask": "npm: watch"
+		},
+    {
+      // this work, now set debugServer property in your extension launched launch.json
+			"name": "Debugger Server",
+			"type": "node",
+			"request": "launch",
+			"cwd": "${workspaceFolder}",
+			"program": "${workspaceFolder}/server/src/debugger/debugAdapter.ts",
+			"args": [
+				"--server=4711"
+			],
+			"outFiles": [
+				"${workspaceFolder}/server/out/debugger/**/*.js"
+			],
+      "sourceMaps": true,
+			"preLaunchTask": "npm: compile"
+		}
   ],
 	"compounds": [
 		{
