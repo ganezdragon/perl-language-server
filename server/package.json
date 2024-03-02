@@ -12,9 +12,8 @@
 		"graceful-fs": "^4.2.6",
 		"vscode-languageserver": "^7.0.0",
 		"vscode-languageserver-textdocument": "^1.0.1",
-		"web-tree-sitter": "^0.19.3"
+		"web-tree-sitter": "^0.20.8"
 	},
-	"scripts": {},
 	"devDependencies": {
 		"@ganezdragon/tree-sitter-perl": "^0.4.0",
 		"@types/graceful-fs": "^4.1.5",
