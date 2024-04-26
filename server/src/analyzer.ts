@@ -1,5 +1,5 @@
 import * as Parser from 'web-tree-sitter';
-import * as fs from 'graceful-fs';
+import * as fs from 'fs';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { Connection, Definition, Diagnostic, DiagnosticSeverity, InitializeParams, SymbolInformation, SymbolKind, } from 'vscode-languageserver/node';
 import { getGlobPattern } from './util/perl_utils';
@@ -8,7 +8,7 @@ import { forEachNode, forEachNodeAnalyze, getRangeForNode } from './util/tree_si
 import { AnalyzeMode, CachingStrategy, ExtensionSettings, FileDeclarations, URIToTree } from './types/common.types';
 import { promisify } from 'util';
 import { fileURLToPath } from 'url';
-const fsPromise = promisify(fs.readFile);
+
 
 class Analyzer {
   // dependencies
@@ -81,9 +81,9 @@ class Analyzer {
       findMissingNodes(tree.rootNode);
     }
 
-    if (!settings.showAllErrors) {
-      getProblems = false;
-    }
+    // if (!settings.showAllErrors) {
+    //   getProblems = false;
+    // }
 
     if (getProblems) {
       // for each node do some analyses
@@ -249,7 +249,7 @@ class Analyzer {
 
           filePaths = filePaths.concat(currentFilePaths);
 
-        } catch (error) {
+        } catch (error: any) {
           connection.window.showWarningMessage(
             `Failed to analyze perl files using the glob "${globPattern}". The experience will be degraded. Error: ${error.message}`,
           )
@@ -271,9 +271,9 @@ class Analyzer {
       filePaths.forEach(async (filePath): Promise<void> => {
           let fileContent: string;
           try {
-            fileContent = await fsPromise(filePath, { encoding: 'utf-8' });
+            fileContent = fs.readFileSync(filePath, { encoding: 'utf-8' });
           }
-          catch (error) {
+          catch (error: any) {
             connection.console.warn(`Failed to read file with error - ${error.message}`);
 
             return;
@@ -302,7 +302,7 @@ class Analyzer {
               getProblems = false;
             }
           }
-          catch (error) {
+          catch (error: any) {
             fileCounter = fileCounter + 1;
 
             connection.console.warn(`Failed analyzing ${uri}. Error: ${error.message}`)
@@ -335,7 +335,7 @@ class Analyzer {
     if (! this.uriToTree.has(uri)) {
       let fileContent: string = '';
       try {
-        fileContent = await fsPromise(fileURLToPath(uri), { encoding: 'utf-8' });
+        fileContent = fs.readFileSync(fileURLToPath(uri), { encoding: 'utf-8' });
 
       } catch (error) {
         console.error(`Error while getting tree for current file - ${error}`);
@@ -396,10 +396,7 @@ class Analyzer {
         return;
       }
       // Get all the variable declarations from parent node
-      const variableDeclarationNodes: Parser.SyntaxNode[] = [
-        ...parentNode.descendantsOfType('multi_var_declaration'),
-        ...parentNode.descendantsOfType('single_var_declaration'),
-      ];
+      const variableDeclarationNodes: Parser.SyntaxNode[] = parentNode.descendantsOfType('variable_declaration');
 
       // Each declaration could have a single or multiple variables
       // 1) my $a;
@@ -432,13 +429,13 @@ class Analyzer {
       findVariablesFromParentNodeRecursive(parentNode.parent);
     }
 
-    if (node.type.match(/_variable/)) {
+    if (node.type.match(/_variable$/)) {
       findVariablesFromParentNodeRecursive(node.parent)
     }
     // else should be a function
     else {
-      this.uriToFunctionDeclarations.forEach((functionDeclaration, thisUri) => {
-        const declarationNames: SymbolInformation[] = functionDeclaration?.get(identifierName) || [];
+      this.uriToFunctionDeclarations.forEach((functionDeclarations, thisUri) => {
+        const declarationNames: SymbolInformation[] = functionDeclarations?.get(identifierName) || [];
         declarationNames.forEach(declaration => symbols.push(declaration));
       });
     }
@@ -446,20 +443,71 @@ class Analyzer {
     return symbols.map(symbol => symbol.location);
   }
 
+  public findFunctionDeclarationMatchingWord(word: string, currentURI: string): SymbolInformation[] {
+    let prioritySymbolsMatchingWord: SymbolInformation[] = [];
+    let symbolsMatchingWord: SymbolInformation[] = [];
+
+    this.uriToFunctionDeclarations.forEach((functionDeclarations, thisUri) => {
+      // Iterate over the key and value of the Map
+      functionDeclarations.forEach((valueSymbolInformation, keyFunctionName) => {
+        if (keyFunctionName.includes(word)) {
+          // if the function is current URI, then put it in priority list
+          if (currentURI === thisUri) {
+            prioritySymbolsMatchingWord.push(
+              ...valueSymbolInformation
+            );
+          }
+          else {
+            symbolsMatchingWord.push(
+              ...valueSymbolInformation
+            );
+          }
+        }
+      });
+    });
+
+    return [
+      ...prioritySymbolsMatchingWord,
+      ...symbolsMatchingWord,
+    ];
+  }
+
   public getVariablesForCompletionAtCurrentNode(uri: string, nodePoint: Parser.SyntaxNode): Parser.SyntaxNode[] {
-    const variableDeclarationNodes: Parser.SyntaxNode[] = [
-      ...nodePoint.descendantsOfType('multi_var_declaration'),
-      ...nodePoint.descendantsOfType('single_var_declaration'),
-    ]
+    const variableDeclarationNodes: Parser.SyntaxNode[] = nodePoint.descendantsOfType('variable_declaration');
 
-    // while (nodePoint.parent) {
-    //   variableDeclarationNodes.push(...nodePoint.parent.descendantsOfType('multi_var_declaration'));
-    //   variableDeclarationNodes.push(...nodePoint.parent.descendantsOfType('single_var_declaration'));
+    // get all parent variable. They should be within the scope
+    while (nodePoint.parent) {
+      variableDeclarationNodes.push(...nodePoint.parent.descendantsOfType('variable_declaration'));
 
-    //   nodePoint = nodePoint.parent;
-    // }
+      nodePoint = nodePoint.parent;
+    }
 
-    return variableDeclarationNodes;
+    // let variables : Parser.SyntaxNode[] = variableDeclarationNodes.map(declaration => declaration.childForFieldName('name'));
+
+    // let variables = variableDeclarationNodes
+    //               .map((declaration: Parser.SyntaxNode) => declaration.childForFieldName('name'))
+    //               .filter((declaration: Parser.SyntaxNode | null) => declaration !== null);
+
+
+    return variableDeclarationNodes.flatMap(declaration => {
+      return [
+        ...declaration.descendantsOfType('scalar_variable'),
+        ...declaration.descendantsOfType('array_variable'),
+        ...declaration.descendantsOfType('hash_variable'),
+      ];
+    });
+  }
+
+  public async getHoverContentAndRangeForNode(uri: string, line: number, column: number): Promise<string | null> {
+    const node: Parser.SyntaxNode | null = await this.getNodeAtPoint(uri, line, column);
+
+    if (!node) {
+      return null;
+    }
+
+    node?.parent
+
+    return node?.toString() || "";
   }
 }
 

@@ -45,7 +45,10 @@
           "scope": "machine-overridable",
           "type": "string",
           "default": "eager",
-          "enum": ["full", "eager"],
+          "enum": [
+            "full",
+            "eager"
+          ],
           "enumDescriptions": [
             "Caches the entire workspace source tree. For a large workspace this could crash the server",
             "Caches only the opened files. This will be still fast."
@@ -75,7 +78,7 @@
     ]
   },
   "devDependencies": {
-    "typescript": "^4.3.2",
+    "typescript": "^5.3.3",
     "vsce": "^1.88.0"
   }
 }

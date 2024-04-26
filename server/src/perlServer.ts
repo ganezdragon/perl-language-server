@@ -1,10 +1,10 @@
-import { setTimeout } from "timers";
 import { TextDocument } from "vscode-languageserver-textdocument";
-import { ClientCapabilities, CompletionItem, CompletionParams, Connection, Definition, DefinitionParams, InitializeParams, SymbolKind, TextDocuments } from "vscode-languageserver/node";
+import { ClientCapabilities, CompletionItem, CompletionParams, Connection, Definition, DefinitionParams, HandlerResult, Hover, HoverParams, InitializeParams, MarkupContent, MarkupKind, Range, ServerRequestHandler, SymbolInformation, SymbolKind, TextDocuments } from "vscode-languageserver/node";
 import * as Parser from 'web-tree-sitter';
 import Analyzer from "./analyzer";
 import { initializeParser } from "./parser";
 import { AnalyzeMode, CachingStrategy, ExtensionSettings } from "./types/common.types";
+import { getRangeForNode } from "./util/tree_sitter_utils";
 
 export default class PerlServer {
   // dependencies to be injected
@@ -91,9 +91,10 @@ export default class PerlServer {
     });
 
     // all feature related registrations
-    this.connection.onDefinition(this.onDefinition.bind(this));
     this.connection.onCompletion(this.onCompletion.bind(this));
     this.connection.onCompletionResolve(this.onCompletionResolve.bind(this));
+    this.connection.onDefinition(this.onDefinition.bind(this));
+    this.connection.onHover(this.onHover.bind(this));
   }
 
   /**
@@ -115,38 +116,75 @@ export default class PerlServer {
 
   private async onCompletion(params: CompletionParams): Promise<CompletionItem[]> {
     let variableCompletions: CompletionItem[] = [];
+    let userFunctionCompletions: CompletionItem[] = [];
+
+    const nodeBefore = await this.getNodeBeforePoint(params);
+    if (!nodeBefore) {
+      return [];
+    }
 
     if (params.context?.triggerKind === 2) {
       // a possible scalar variable
       if (params.context.triggerCharacter === '$') {
-        const nodeBefore = await this.getNodeBeforePoint(params);
-        if (!nodeBefore) {
-          return [];
-        }
+        
 
+        // if you are just declaring, exit
         if (nodeBefore.previousSibling?.text.match(/scope/)) {
           return [];
         }
 
-        // const variables: Parser.SyntaxNode[] =  this.analyzer.getVariablesForCompletionAtCurrentNode(params.textDocument.uri, nodeBefore);
+        const variables: Parser.SyntaxNode[] =  this.analyzer.getVariablesForCompletionAtCurrentNode(params.textDocument.uri, nodeBefore);        
 
-        // variableCompletions = variables.map(variable => ({
-        //   label: variable.text,
-        //   kind: SymbolKind.Constant,
-        //   data: {
-        //     item: variable.text
-        //   }
-        // }));
+        variableCompletions = variables.map(variable => ({
+          label: variable.text,
+          kind: SymbolKind.Variable,
+          textEdit: {
+            range: getRangeForNode(nodeBefore),
+            newText: variable.text,
+          }
+        }));
       }
+    }
+    else if (params.context?.triggerKind === 1) {
+      const userFunctions: SymbolInformation[] = this.analyzer.findFunctionDeclarationMatchingWord(nodeBefore.text, params.textDocument.uri);
+
+      userFunctionCompletions = userFunctions.map(functionSymbol => ({
+        label: functionSymbol.name,
+        kind: SymbolKind.Method, // I know its not a method, but the UI looks good for this instead of Function
+      }));
     }
 
     return [
       ...variableCompletions,
+      ...userFunctionCompletions,
     ];
   }
 
   private onCompletionResolve(item: CompletionItem) {
     return item;
+  }
+
+  private async onHover(params: HoverParams): Promise<Hover | null> {
+    const content: string | null = await this.analyzer.getHoverContentAndRangeForNode(
+      params.textDocument.uri,
+      params.position.line,
+      params.position.character,
+    );
+
+    if (!content) {
+      return null;
+    }
+
+    const markdownContent: MarkupContent = {
+      kind: MarkupKind.Markdown,
+      value: content,
+    };
+    const range: Range | undefined = undefined;
+    
+    return {
+      contents: markdownContent,
+      range: range,
+    };
   }
 
   /**

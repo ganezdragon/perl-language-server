@@ -8,16 +8,13 @@
 		"node": "*"
 	},
 	"dependencies": {
-		"fast-glob": "^3.2.5",
-		"graceful-fs": "^4.2.6",
-		"vscode-languageserver": "^7.0.0",
-		"vscode-languageserver-textdocument": "^1.0.1",
+		"fast-glob": "^3.3.2",
+		"vscode-languageserver": "^9.0.1",
+		"vscode-languageserver-textdocument": "^1.0.11",
 		"web-tree-sitter": "^0.20.8"
 	},
 	"devDependencies": {
-		"@ganezdragon/tree-sitter-perl": "^0.4.0",
-		"@types/graceful-fs": "^4.1.5",
-		"@types/node": "^14.0.14",
+		"@types/node": "^16.18.86",
 		"tree-sitter-cli": "^0.20.8"
 	}
 }
