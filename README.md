@@ -6,14 +6,15 @@ A simple perl language server written in typescript, with a client that's also w
 
 - Syntax check (beta)
 - Function Navigation
-- Variable Navigation (beta)
+- Variable Navigation
+- Variable autocomplete
+- Function autocomplete (beta)
 
 
 > Other features coming up in the alpha release
 
 ## Upcoming features
 - Integrated debugger
-- Code completion
 - Much more to come
 
 ## Requirements
