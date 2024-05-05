@@ -1,4 +1,4 @@
-import { SymbolInformation, URI } from "vscode-languageserver/node"
+import { Range, SymbolInformation, URI } from "vscode-languageserver/node"
 import { Tree } from "web-tree-sitter";
 
 interface ExtensionSettings {
@@ -27,6 +27,11 @@ interface WordWithType {
   word: string;
 }
 
+interface StatementWithRange {
+  range: Range;
+  statement: string;
+}
+
 export {
   ExtensionSettings,
   CachingStrategy,
@@ -34,4 +39,5 @@ export {
   FileDeclarations,
   URIToTree,
   WordWithType,
+  StatementWithRange,
 }

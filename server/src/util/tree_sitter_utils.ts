@@ -53,8 +53,23 @@ function getRangeForNode(node: SyntaxNode): Range {
   );
 }
 
+/**
+ * Given a node, recursively finds the first package that its under.
+ * Could return null if not found (probably a pl file?)
+ * 
+ * @param node the node for which the encapsulating package to be found
+ * @returns a SyntaxNode or Null
+ */
+function getPackageNodeForNode(node: SyntaxNode): SyntaxNode | null {
+  const package_statements: SyntaxNode[] = node.descendantsOfType("package_statement")
+
+  // return the last package that you encouter
+  return package_statements.length > 0 ? package_statements[package_statements.length - 1] : node.parent !== null ? getPackageNodeForNode(node.parent) : null;
+}
+
 export {
   forEachNodeAnalyze,
   forEachNode,
   getRangeForNode,
+  getPackageNodeForNode
 }

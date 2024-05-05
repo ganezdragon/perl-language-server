@@ -1,10 +1,9 @@
 import { TextDocument } from "vscode-languageserver-textdocument";
-import { ClientCapabilities, CompletionItem, CompletionParams, Connection, Definition, DefinitionParams, HandlerResult, Hover, HoverParams, InitializeParams, MarkupContent, MarkupKind, Range, ServerRequestHandler, SymbolInformation, SymbolKind, TextDocuments } from "vscode-languageserver/node";
+import { ClientCapabilities, CompletionItem, CompletionParams, Connection, Definition, DefinitionParams, Hover, HoverParams, InitializeParams, MarkupContent, MarkupKind, Range, SymbolInformation, SymbolKind, TextDocuments } from "vscode-languageserver/node";
 import * as Parser from 'web-tree-sitter';
 import Analyzer from "./analyzer";
 import { initializeParser } from "./parser";
-import { AnalyzeMode, CachingStrategy, ExtensionSettings } from "./types/common.types";
-import { getRangeForNode } from "./util/tree_sitter_utils";
+import { CachingStrategy, ExtensionSettings } from "./types/common.types";
 
 export default class PerlServer {
   // dependencies to be injected
@@ -125,24 +124,28 @@ export default class PerlServer {
 
     if (params.context?.triggerKind === 2) {
       // a possible scalar variable
-      if (params.context.triggerCharacter === '$') {
-        
-
-        // if you are just declaring, exit
-        if (nodeBefore.previousSibling?.text.match(/scope/)) {
-          return [];
-        }
-
-        const variables: Parser.SyntaxNode[] =  this.analyzer.getVariablesForCompletionAtCurrentNode(params.textDocument.uri, nodeBefore);        
-
-        variableCompletions = variables.map(variable => ({
-          label: variable.text,
-          kind: SymbolKind.Variable,
-          textEdit: {
-            range: getRangeForNode(nodeBefore),
-            newText: variable.text,
+      switch (params.context.triggerCharacter) {
+        case "$":
+        case "@":
+        case "%":
+          // if you are just declaring, exit
+          if (nodeBefore.previousSibling?.type === 'scope') {
+            return [];
           }
-        }));
+
+          const variables: Parser.SyntaxNode[] =  this.analyzer.getVariablesWithInScopeAtCurrentNode(params.textDocument.uri, nodeBefore);        
+
+          variableCompletions = variables.map(variable => ({
+            label: variable.text,
+            kind: SymbolKind.Method,
+            insertText: variable.text,
+            // textEdit: {
+            //   range: getRangeForNode(nodeBefore),
+            //   newText: variable.text,
+            // }
+          }));
+        default:
+          break;
       }
     }
     else if (params.context?.triggerKind === 1) {
@@ -151,6 +154,8 @@ export default class PerlServer {
       userFunctionCompletions = userFunctions.map(functionSymbol => ({
         label: functionSymbol.name,
         kind: SymbolKind.Method, // I know its not a method, but the UI looks good for this instead of Function
+        insertText: functionSymbol.name + '()',
+        // additionalTextEdits: getAdditionalEditsForFunctionImports(nodeBefore, functionSymbol),
       }));
     }
 

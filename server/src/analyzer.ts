@@ -4,7 +4,7 @@ import { TextDocument } from 'vscode-languageserver-textdocument';
 import { Connection, Definition, Diagnostic, DiagnosticSeverity, InitializeParams, SymbolInformation, SymbolKind, } from 'vscode-languageserver/node';
 import { getGlobPattern } from './util/perl_utils';
 import { getFilesFromPath } from './util/file';
-import { forEachNode, forEachNodeAnalyze, getRangeForNode } from './util/tree_sitter_utils';
+import { forEachNode, forEachNodeAnalyze, getPackageNodeForNode, getRangeForNode } from './util/tree_sitter_utils';
 import { AnalyzeMode, CachingStrategy, ExtensionSettings, FileDeclarations, URIToTree } from './types/common.types';
 import { promisify } from 'util';
 import { fileURLToPath } from 'url';
@@ -189,16 +189,17 @@ class Analyzer {
       }
       
       const functionName: string = functionNameNode.text;
+      const packageName: string = getPackageNodeForNode(functionDeclarationNode)?.descendantsOfType("package_name")[0].text || '';
 
       let namedDeclarations: SymbolInformation[] = this.uriToFunctionDeclarations.get(uri)?.get(functionName) || [];
 
       namedDeclarations.push(
         SymbolInformation.create(
-          functionName,
+          packageName ? packageName + '::' + functionName : functionName,
           SymbolKind.Function,
           getRangeForNode(functionNameNode),
           uri,
-          functionDeclarationNode.parent?.text
+          packageName,
         ),
       );
 
@@ -472,7 +473,7 @@ class Analyzer {
     ];
   }
 
-  public getVariablesForCompletionAtCurrentNode(uri: string, nodePoint: Parser.SyntaxNode): Parser.SyntaxNode[] {
+  public getVariablesWithInScopeAtCurrentNode(uri: string, nodePoint: Parser.SyntaxNode): Parser.SyntaxNode[] {
     const variableDeclarationNodes: Parser.SyntaxNode[] = nodePoint.descendantsOfType('variable_declaration');
 
     // get all parent variable. They should be within the scope
