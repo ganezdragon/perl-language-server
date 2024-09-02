@@ -62,7 +62,7 @@ class Analyzer {
      */
     function findMissingNodes(node: Parser.SyntaxNode) {
 
-      if (node.isMissing()) {
+      if (node.isMissing) {
         problems.push(
           Diagnostic.create(
             getRangeForNode(node),
@@ -71,7 +71,7 @@ class Analyzer {
           ),
         );
       }
-      else if (node.hasError()) {
+      else if (node.hasError) {
         node.children.forEach(findMissingNodes);
       }
     }

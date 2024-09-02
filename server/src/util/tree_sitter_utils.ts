@@ -12,7 +12,7 @@ function forEachNodeAnalyze(node: SyntaxNode, callBack: (nodeInCallBack: SyntaxN
   callBack(node);
 
   // Only analyze the node if its children has either error or missing node
-  if (node.childCount && (node.hasError() || node.isMissing())) {
+  if (node.childCount && (node.hasError || node.isMissing)) {
     node.children.forEach((currentChildNode) => {
       forEachNodeAnalyze(currentChildNode, callBack);
     });
