@@ -11,10 +11,10 @@
 		"fast-glob": "^3.3.2",
 		"vscode-languageserver": "^9.0.1",
 		"vscode-languageserver-textdocument": "^1.0.11",
-		"web-tree-sitter": "^0.22.6"
+		"web-tree-sitter": "^0.24.3"
 	},
 	"devDependencies": {
 		"@types/node": "^16.18.86",
-		"tree-sitter-cli": "^0.22.2"
+		"tree-sitter-cli": "^0.24.3"
 	}
 }

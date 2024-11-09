@@ -1,5 +1,5 @@
 import * as Parser from 'web-tree-sitter';
-import * as fs from 'fs';
+import * as fs from 'fs/promises';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { Connection, Definition, Diagnostic, DiagnosticSeverity, InitializeParams, SymbolInformation, SymbolKind, } from 'vscode-languageserver/node';
 import { getGlobPattern } from './util/perl_utils';
@@ -60,26 +60,26 @@ class Analyzer {
      * 
      * @param node the syntax node
      */
-    function findMissingNodes(node: Parser.SyntaxNode) {
+    // function findMissingNodes(node: Parser.SyntaxNode) {
 
-      if (node.isMissing) {
-        problems.push(
-          Diagnostic.create(
-            getRangeForNode(node),
-            `Syntax error: expected "${node.type}"`,
-            DiagnosticSeverity.Error,
-          ),
-        );
-      }
-      else if (node.hasError) {
-        node.children.forEach(findMissingNodes);
-      }
-    }
+    //   if (node.isMissing) {
+    //     problems.push(
+    //       Diagnostic.create(
+    //         getRangeForNode(node),
+    //         `Syntax error: expected "${node.type}"`,
+    //         DiagnosticSeverity.Error,
+    //       ),
+    //     );
+    //   }
+    //   else if (node.hasError) {
+    //     node.children.forEach(findMissingNodes);
+    //   }
+    // }
 
-    if (getProblems) {
-      // find missing nodes even if we are not showing ALL problems (as of now)
-      findMissingNodes(tree.rootNode);
-    }
+    // if (getProblems) {
+    //   // find missing nodes even if we are not showing ALL problems (as of now)
+    //   findMissingNodes(tree.rootNode);
+    // }
 
     // if (!settings.showAllErrors) {
     //   getProblems = false;
@@ -87,26 +87,24 @@ class Analyzer {
 
     if (getProblems) {
       // for each node do some analyses
-      forEachNodeAnalyze(tree.rootNode, (node: Parser.SyntaxNode) => {
-        if (node.type === 'ERROR') {
-          if (node.toString().includes('UNEXPECTED')) {
-            problems.push(
-              Diagnostic.create(
-                getRangeForNode(node),
-                `Syntax Error: Unexpected character ${node.text}`,
-                DiagnosticSeverity.Error,
-              ),
-            );
-          }
-          else {
-            problems.push(
-              Diagnostic.create(
-                getRangeForNode(node),
-                `Syntax Error near expression ${node.text}`,
-                DiagnosticSeverity.Error,
-              )
-            );
-          }
+      forEachNodeAnalyze(true, tree.rootNode, (node: Parser.SyntaxNode) => {
+        if (node.isError) {
+          problems.push(
+            Diagnostic.create(
+              getRangeForNode(node),
+              `Syntax Error near expression ${node.text}`,
+              DiagnosticSeverity.Error,
+            )
+          );
+        }
+        else if (node.isMissing) {
+          problems.push(
+            Diagnostic.create(
+              getRangeForNode(node),
+              `Syntax error: expected "${node.type}"`,
+              DiagnosticSeverity.Error,
+            ),
+          );
         }
       });
     }
@@ -269,10 +267,11 @@ class Analyzer {
       let totalFiles: number = filePaths.length;
       let getProblems: boolean = true;
 
-      filePaths.forEach(async (filePath): Promise<void> => {
+      await Promise.all(
+        filePaths.map(async (filePath) => {
           let fileContent: string;
           try {
-            fileContent = fs.readFileSync(filePath, { encoding: 'utf-8' });
+            fileContent = await fs.readFile(filePath, { encoding: 'utf-8' });
           }
           catch (error: any) {
             connection.console.warn(`Failed to read file with error - ${error.message}`);
@@ -311,7 +310,7 @@ class Analyzer {
           finally {
             fileCounter = fileCounter + 1;
 
-            // connection.console.info(`Analyzed file ${uri} , prob - ${problemsCounter}, fileC - ${fileCounter}, goal - ${totalFiles}, mem - ${process.memoryUsage().heapUsed / 1024 / 1024} MB`);
+            connection.console.debug(`Analyzed file ${uri} , prob - ${problemsCounter}, fileC - ${fileCounter}, goal - ${totalFiles}, mem - ${process.memoryUsage().heapUsed / 1024 / 1024} MB`);
             
             let percentage: number = Math.round( (fileCounter / totalFiles) * 100 );
             progress.report(percentage, `in progress - ${percentage}%`);
@@ -321,7 +320,8 @@ class Analyzer {
               progress.done();
             }
           }
-        });
+        })
+      );
     }
   }
 
@@ -336,7 +336,7 @@ class Analyzer {
     if (! this.uriToTree.has(uri)) {
       let fileContent: string = '';
       try {
-        fileContent = fs.readFileSync(fileURLToPath(uri), { encoding: 'utf-8' });
+        fileContent = await fs.readFile(fileURLToPath(uri), { encoding: 'utf-8' });
 
       } catch (error) {
         console.error(`Error while getting tree for current file - ${error}`);

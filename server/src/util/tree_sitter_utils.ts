@@ -8,13 +8,15 @@ import { SyntaxNode } from "web-tree-sitter";
  * @param node the syntax node
  * @param callBack the callBack function to execute
  */
-function forEachNodeAnalyze(node: SyntaxNode, callBack: (nodeInCallBack: SyntaxNode) => void): void {
-  callBack(node);
+function forEachNodeAnalyze(isRootNode: boolean, node: SyntaxNode, callBack: (nodeInCallBack: SyntaxNode) => void): void {
+  if (!isRootNode) {
+    callBack(node);
+  }
 
   // Only analyze the node if its children has either error or missing node
   if (node.childCount && (node.hasError || node.isMissing)) {
     node.children.forEach((currentChildNode) => {
-      forEachNodeAnalyze(currentChildNode, callBack);
+      forEachNodeAnalyze(false, currentChildNode, callBack);
     });
   }
 }
