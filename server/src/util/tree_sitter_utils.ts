@@ -29,10 +29,10 @@ function forEachNodeAnalyze(isRootNode: boolean, node: SyntaxNode, callBack: (no
  * @param node the syntax node
  * @param callBack the callBack function to execute
  */
-function forEachNode(node: SyntaxNode, callBack: (nodeInCallBack: SyntaxNode) => void): void {
-  callBack(node);
+function forEachNode(node: SyntaxNode, callBack: (nodeInCallBack: SyntaxNode) => boolean): void {
+  const shouldContinueForChild = callBack(node);
 
-  if (node.childCount) {
+  if (node.childCount && shouldContinueForChild) {
     node.children.forEach(currentChildNode => {
       forEachNode(currentChildNode, callBack);
     })

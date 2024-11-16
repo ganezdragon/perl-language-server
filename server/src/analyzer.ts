@@ -154,6 +154,8 @@ class Analyzer {
         if (variable) {
           variableNodes.push(variable);
         }
+
+        return true;
       });
 
       variableNodes.forEach(variableNode => {
@@ -383,55 +385,28 @@ class Analyzer {
 
     const identifierName: string = node.text;
 
-    let gotTheVariable: boolean = false;
-
-    /**
-     * Finds the variables from the parent node recursively.
-     * This is to find the definition of the variables within its scope.
-     * 
-     * @param parentNode the parentNode of the current node in syntax tree
-     * @returns SyntaxNode or null
-     */
-    function findVariablesFromParentNodeRecursive(parentNode: Parser.SyntaxNode | null) {
-      if (!parentNode) {
-        return;
-      }
-      // Get all the variable declarations from parent node
-      const variableDeclarationNodes: Parser.SyntaxNode[] = parentNode.descendantsOfType('variable_declaration');
-
-      // Each declaration could have a single or multiple variables
-      // 1) my $a;
-      // 2) my ($a, $b, $c);
-      variableDeclarationNodes.forEach(declarationNode => {
-
-        forEachNode(declarationNode, (eachNode) => {
-          const variableNode: Parser.SyntaxNode | null = eachNode.childForFieldName('name');
-
-          // exit when we get the first occurrence in the parent
-          if (variableNode?.text === identifierName) {
-            symbols.push(
-              SymbolInformation.create(
-                variableNode.text,
-                SymbolKind.Variable,
-                getRangeForNode(variableNode),
-                uri,
-                variableNode.parent?.text,
-              ),
-            );
-            gotTheVariable = true;
-          }
-        });
-      });
-
-      if (gotTheVariable) {
-        return;
-      }
-
-      findVariablesFromParentNodeRecursive(parentNode.parent);
-    }
-
     if (node.type.match(/_variable$/)) {
-      findVariablesFromParentNodeRecursive(node.parent)
+      const allVariablesAvailableForCurrentScope: Parser.SyntaxNode[] = this.getAllVariablesWithInScopeAtCurrentNode(uri, node);
+
+      // just a set to uniquely get the first variable occurence.
+      let uniqueVariableSet: Set<string> = new Set();
+
+      allVariablesAvailableForCurrentScope.forEach(variable => {
+        if (variable.text === identifierName && ! uniqueVariableSet.has(variable.text)) {
+
+          uniqueVariableSet.add(variable.text);
+
+          symbols.push(
+            SymbolInformation.create(
+              variable.text,
+              SymbolKind.Variable,
+              getRangeForNode(variable),
+              uri,
+              variable.parent?.text,
+            ),
+          );
+        }
+      })
     }
     // else should be a function
     else {
@@ -508,8 +483,9 @@ class Analyzer {
         rootVariables.push(nodeInLoop);
       }
       else if(nodeInLoop.type === 'block') {
-        return;
+        return false;
       }
+      return true;
     });
 
     return rootVariables;
@@ -544,7 +520,13 @@ class Analyzer {
     }
 
     return variableNodes.filter(variable => {
-      return variable.endPosition.row <= currentNode.startPosition.row; // in same or above current row
+      return (
+        variable.endPosition.row < currentNode.startPosition.row // above current row
+        || (
+          variable.endPosition.row === currentNode.startPosition.row    // or in same row but before current Node
+          && variable.endPosition.column < currentNode.startPosition.column
+        )
+      )
     });    
   }
 
