@@ -39,7 +39,7 @@ connection.onInitialize(async (params: InitializeParams): Promise<InitializeResu
 			// Tell the client that this server supports code completion.
 			completionProvider: {
 				resolveProvider: true,
-				triggerCharacters: ["$", "@", "%", ".", ":", "::"],
+				triggerCharacters: ["$", "@", "%", ".", ":", "::", "-", "->"],
 				completionItem: {
 					labelDetailsSupport: true,
 				}

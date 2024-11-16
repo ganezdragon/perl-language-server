@@ -4,6 +4,7 @@ import * as Parser from 'web-tree-sitter';
 import Analyzer from "./analyzer";
 import { initializeParser } from "./parser";
 import { CachingStrategy, ExtensionSettings } from "./types/common.types";
+import { getRangeForNode } from "./util/tree_sitter_utils";
 
 export default class PerlServer {
   // dependencies to be injected
@@ -117,33 +118,19 @@ export default class PerlServer {
     let variableCompletions: CompletionItem[] = [];
     let userFunctionCompletions: CompletionItem[] = [];
 
-    const nodeBefore = await this.getNodeBeforePoint(params);
-    if (!nodeBefore) {
+    const nodeBefore: Parser.SyntaxNode | null | undefined = await this.getNodeBeforePoint(params);
+    if (!nodeBefore || nodeBefore.previousSibling?.type === 'scope') {
       return [];
     }
 
     if (params.context?.triggerKind === 2) {
-      // a possible scalar variable
+      
       switch (params.context.triggerCharacter) {
         case "$":
         case "@":
         case "%":
-          // if you are just declaring, exit
-          if (nodeBefore.previousSibling?.type === 'scope') {
-            return [];
-          }
-
-          const variables: Parser.SyntaxNode[] =  this.analyzer.getVariablesWithInScopeAtCurrentNode(params.textDocument.uri, nodeBefore);        
-
-          variableCompletions = variables.map(variable => ({
-            label: variable.text,
-            kind: SymbolKind.Method,
-            insertText: variable.text,
-            // textEdit: {
-            //   range: getRangeForNode(nodeBefore),
-            //   newText: variable.text,
-            // }
-          }));
+          variableCompletions = await this.getVariableNodesForCompletion(params, nodeBefore);
+  
         default:
           break;
       }
@@ -157,12 +144,40 @@ export default class PerlServer {
         insertText: functionSymbol.name + '()',
         // additionalTextEdits: getAdditionalEditsForFunctionImports(nodeBefore, functionSymbol),
       }));
+
+      variableCompletions = await this.getVariableNodesForCompletion(params, nodeBefore);
     }
 
     return [
       ...variableCompletions,
       ...userFunctionCompletions,
     ];
+  }
+
+  private async getVariableNodesForCompletion(params: CompletionParams, nodeBefore: Parser.SyntaxNode): Promise<CompletionItem[]> {
+    let variableCompletions: CompletionItem[] = [];
+    const variables: Parser.SyntaxNode[] =  this.analyzer.getAllVariablesWithInScopeAtCurrentNode(params.textDocument.uri, nodeBefore);
+          
+    // just a set to uniquely get the first variable occurence.
+    let uniqueVariableSet: Set<string> = new Set();
+
+    variables.forEach(variable => {
+      if (! uniqueVariableSet.has(variable.text)) {
+        uniqueVariableSet.add(variable.text);
+
+        variableCompletions.push({
+          label: variable.text,
+          kind: SymbolKind.Method,
+          insertText: variable.text,
+          textEdit: {
+            range: getRangeForNode(nodeBefore),
+            newText: variable.text,
+          }
+        });
+      }
+    });
+
+    return variableCompletions;
   }
 
   private onCompletionResolve(item: CompletionItem) {

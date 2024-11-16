@@ -473,30 +473,79 @@ class Analyzer {
     ];
   }
 
-  public getVariablesWithInScopeAtCurrentNode(uri: string, nodePoint: Parser.SyntaxNode): Parser.SyntaxNode[] {
-    const variableDeclarationNodes: Parser.SyntaxNode[] = nodePoint.descendantsOfType('variable_declaration');
+  /**
+   * Given a node, returns the outer block for the current node.
+   * or null if not found (if no blocks in source code)
+   * 
+   * @param nodeAtPosition the node at the current position
+   * @returns the outer block for the current node, if present
+   */
+  public getOuterBlockForCurrentNode(nodeAtPosition: Parser.SyntaxNode): Parser.SyntaxNode | null {
+    let outerBlockNode: Parser.SyntaxNode | null = null;
 
-    // get all parent variable. They should be within the scope
-    while (nodePoint.parent) {
-      variableDeclarationNodes.push(...nodePoint.parent.descendantsOfType('variable_declaration'));
-
-      nodePoint = nodePoint.parent;
+    while (nodeAtPosition.parent) {
+      if (nodeAtPosition.type === 'block') {
+        outerBlockNode = nodeAtPosition;
+      }
+      nodeAtPosition = nodeAtPosition.parent;
     }
 
-    // let variables : Parser.SyntaxNode[] = variableDeclarationNodes.map(declaration => declaration.childForFieldName('name'));
+    return outerBlockNode;
+  }
 
-    // let variables = variableDeclarationNodes
-    //               .map((declaration: Parser.SyntaxNode) => declaration.childForFieldName('name'))
-    //               .filter((declaration: Parser.SyntaxNode | null) => declaration !== null);
+  /**
+   * Given a currentNode, returns all the root variables for the current file.
+   * If its a block, it would skip all internal variables to it.
+   * 
+   * @param currentNode the currentNode
+   * @returns returns all the root variables for the current file
+   */
+  public getRootVariablesInFile(currentNode: Parser.SyntaxNode): Parser.SyntaxNode[] {
+    const rootVariables: Parser.SyntaxNode[] = [];
 
-
-    return variableDeclarationNodes.flatMap(declaration => {
-      return [
-        ...declaration.descendantsOfType('scalar_variable'),
-        ...declaration.descendantsOfType('array_variable'),
-        ...declaration.descendantsOfType('hash_variable'),
-      ];
+    forEachNode(currentNode.tree.rootNode, (nodeInLoop) => {
+      if (nodeInLoop.type.match(/_variable$/)) {
+        rootVariables.push(nodeInLoop);
+      }
+      else if(nodeInLoop.type === 'block') {
+        return;
+      }
     });
+
+    return rootVariables;
+  }
+
+  /**
+   * Given a currentNode, returns all the variables for the current scope
+   * 
+   * @param uri the uri of the file
+   * @param currentNode the currentNode
+   * @returns returns all the variables availalbe from the current scope
+   */
+  public getAllVariablesWithInScopeAtCurrentNode(uri: string, currentNode: Parser.SyntaxNode): Parser.SyntaxNode[] {
+    let variableNodes: Parser.SyntaxNode[] = [];
+
+    const outerBlockNode: Parser.SyntaxNode | null = this.getOuterBlockForCurrentNode(currentNode);
+
+    const rootVariables: Parser.SyntaxNode[] = this.getRootVariablesInFile(currentNode);
+
+    if (rootVariables.length > 0) {
+      variableNodes = rootVariables;
+    }
+
+    if (outerBlockNode) {
+      variableNodes.push(
+        ...outerBlockNode.descendantsOfType('scalar_variable'),
+        ...outerBlockNode.descendantsOfType('array_variable'),
+        ...outerBlockNode.descendantsOfType('hash_variable'),
+        ...outerBlockNode.descendantsOfType('special_scalar_variable'),
+        ...outerBlockNode.descendantsOfType('typeglob'),
+      );
+    }
+
+    return variableNodes.filter(variable => {
+      return variable.endPosition.row <= currentNode.startPosition.row; // in same or above current row
+    });    
   }
 
   public async getHoverContentAndRangeForNode(uri: string, line: number, column: number): Promise<string | null> {
