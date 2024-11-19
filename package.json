@@ -2,7 +2,7 @@
   "name": "perl-language-server",
   "displayName": "Perl IDE (beta)",
   "description": "Perl IDE (beta)",
-  "version": "1.1.0",
+  "version": "1.1.2",
   "scripts": {
     "compile": "tsc -b",
     "clean": "rm -rf server/out && rm -rf client/out",
