@@ -1,11 +1,11 @@
 import * as Parser from 'web-tree-sitter';
 import * as fs from 'fs/promises';
 import { TextDocument } from 'vscode-languageserver-textdocument';
-import { Connection, Definition, Diagnostic, DiagnosticSeverity, InitializeParams, Position, Range, SymbolInformation, SymbolKind, TextEdit, } from 'vscode-languageserver/node';
+import { Connection, Definition, Diagnostic, DiagnosticSeverity, InitializeParams, Location, Position, Range, SymbolInformation, SymbolKind, TextEdit, } from 'vscode-languageserver/node';
 import { getGlobPattern } from './util/perl_utils';
 import { getFilesFromPath } from './util/file';
 import { forEachNode, forEachNodeAnalyze, getContinuousRangeForNodes, getListOfRangeForPackageStatements, getPackageNodeForNode, getRangeForNode, getRangeForURI } from './util/tree_sitter_utils';
-import { AnalyzeMode, CachingStrategy, ExtensionSettings, FileDeclarations, FunctionDetail, ImportDetail, URIToTree } from './types/common.types';
+import { AnalyzeMode, CachingStrategy, ExtensionSettings, FileDeclarations, FunctionDetail, FunctionReference, ImportDetail, URIToTree } from './types/common.types';
 import { fileURLToPath } from 'url';
 import { extractSubroutineNameFromFullFunctionName } from './util/basic';
 
@@ -17,6 +17,7 @@ class Analyzer {
   private uriToTree: URIToTree = new Map();
   private uriToVariableDeclarations: FileDeclarations = new Map();
   private uriToFunctionDeclarations: FileDeclarations = new Map();
+  private uriToFunctionReferences: FunctionReference = new Map();
 
   /**
    * The constructor which injects the dependencies
@@ -109,6 +110,8 @@ class Analyzer {
     }
 
     this.extractAndSetDeclarationsFromFile(document, tree.rootNode);
+
+    this.extractAndSetFunctionReferencesFromFile(document, tree.rootNode);
 
     // free up those heap memory
     tree.delete();
@@ -207,6 +210,42 @@ class Analyzer {
       if (existingFunctions) {
         this.uriToFunctionDeclarations.set(uri, existingFunctions);
       }
+    });
+  }
+
+  private extractAndSetFunctionReferencesFromFile(document: TextDocument, rootNode: Parser.SyntaxNode): void {
+    const functionNodes: Parser.SyntaxNode[] = [
+      ...rootNode.descendantsOfType('call_expression_with_args_with_brackets'),
+      ...rootNode.descendantsOfType('call_expression_with_args_without_brackets'),
+      ...rootNode.descendantsOfType('call_expression_with_variable'),
+      ...rootNode.descendantsOfType('call_expression_with_spaced_args'),
+      ...rootNode.descendantsOfType('call_expression_recursive'),
+      ...rootNode.descendantsOfType('method_invocation'),
+    ];
+
+    functionNodes.forEach(functionNode => {
+      const functionNameNode: Parser.SyntaxNode | null = functionNode.childForFieldName('function_name')
+                                                            || functionNode.children[0].childForFieldName('function_name');
+
+      if (!functionNameNode) {
+        return;
+      }
+      const functionName: string = functionNameNode.text;
+      const packageName: string = functionNode.descendantsOfType("package_name")[0]?.text || '';
+
+      if (!this.uriToFunctionReferences.has(functionName)) {
+        this.uriToFunctionReferences.set(functionName, []);
+      }
+
+      this.uriToFunctionReferences.get(functionName)?.push(
+        SymbolInformation.create(
+          functionName,
+          SymbolKind.Function,
+          getRangeForNode(functionNameNode),
+          document.uri,
+          packageName,
+        ),
+      );
     });
   }
 
@@ -418,6 +457,67 @@ class Analyzer {
     return symbols.map(symbol => symbol.location);
   }
 
+  public findAllReferences(fileName: string, nodeAtPoint: Parser.SyntaxNode): Location[] {
+    const symbols: SymbolInformation[] = [];
+
+    const identifierName: string = nodeAtPoint.text;
+
+    // first push the current nodeAtPoint itself as a reference
+    symbols.push(
+      SymbolInformation.create(
+        nodeAtPoint.text,
+        SymbolKind.Variable, // can be anything.
+        getRangeForNode(nodeAtPoint),
+        fileName,
+        nodeAtPoint.parent?.text,
+      ),
+    );
+
+    if (nodeAtPoint.type.match(/_variable$/)) {
+      const allVariablesAvailableForCurrentScope: Parser.SyntaxNode[] = this.getAllVariablesWithInScopeAtCurrentNode(fileName, nodeAtPoint, true);
+
+      allVariablesAvailableForCurrentScope.forEach(variable => {
+        if (variable.text === identifierName) {
+          symbols.push(
+            SymbolInformation.create(
+              variable.text,
+              SymbolKind.Variable,
+              getRangeForNode(variable),
+              fileName,
+              variable.parent?.text,
+            ),
+          );
+        }
+      });
+    }
+    // else its a function
+    else {
+      let packageToRefer: string = nodeAtPoint.parent?.descendantsOfType("package_name")[0]?.text || '';
+      let allFunctionSymbolsMatchingName: SymbolInformation[] = this.uriToFunctionReferences.get(identifierName) || [];
+
+      // TODO: have references pick based on the package name properly
+      // symbols.push(
+      //   ...allFunctionSymbolsMatchingName.filter(functionSymbol => (functionSymbol.containerName === packageToRefer))
+      // );
+      symbols.push(...allFunctionSymbolsMatchingName);
+
+      // add the function declaration as well
+      this.uriToFunctionDeclarations.forEach((functionDeclarations, thisUri) => {
+        const declarationNames: SymbolInformation[] = functionDeclarations?.get(identifierName) || [];
+        declarationNames.forEach((declaration: SymbolInformation) => {
+          symbols.push(declaration);
+          // if (declaration.containerName === packageToRefer) {
+          //   symbols.push(declaration);
+          // }
+        });
+      });
+      
+    }
+
+    return symbols.map(symbol => symbol.location);
+
+  }
+
   public findFunctionDeclarationMatchingWord(word: string, currentURI: string): SymbolInformation[] {
     let prioritySymbolsMatchingWord: SymbolInformation[] = [];
     let symbolsMatchingWord: SymbolInformation[] = [];
@@ -512,7 +612,7 @@ class Analyzer {
    * @param currentNode the currentNode
    * @returns returns all the variables availalbe from the current scope
    */
-  public getAllVariablesWithInScopeAtCurrentNode(uri: string, currentNode: Parser.SyntaxNode): Parser.SyntaxNode[] {
+  public getAllVariablesWithInScopeAtCurrentNode(uri: string, currentNode: Parser.SyntaxNode, includeSucceedingVariables: boolean = false): Parser.SyntaxNode[] {
     let variableNodes: Parser.SyntaxNode[] = [];
 
     const outerBlockNode: Parser.SyntaxNode | null = this.getOuterBlockForCurrentNode(currentNode);
@@ -533,6 +633,10 @@ class Analyzer {
       );
     }
 
+    if (includeSucceedingVariables) {
+      return variableNodes;
+    }
+
     return variableNodes.filter(variable => {
       return (
         variable.endPosition.row < currentNode.startPosition.row // above current row
@@ -544,13 +648,13 @@ class Analyzer {
     });    
   }
 
-  public getAdditionalEditsForFunctionImports(currentFileName: string, functionToImport: SymbolInformation): TextEdit[] | undefined {
+  public async getAdditionalEditsForFunctionImports(currentFileName: string, functionToImport: SymbolInformation): Promise<TextEdit[] | undefined> {
     // if same file function or no package, no need to import
     if (currentFileName === functionToImport.location.uri || !(functionToImport.containerName)) {
       return [];
     }
 
-    let getAllPackagesAndRangesInCurrentFile: ImportDetail = this.getImportStatementStringAndRangeInCurrentFile(currentFileName);
+    let getAllPackagesAndRangesInCurrentFile: ImportDetail = await this.getImportStatementStringAndRangeInCurrentFile(currentFileName);
 
     // Find if package already imported
     // if it is full package, leave it.
@@ -649,8 +753,8 @@ class Analyzer {
   /**
    * Given a fileName, returns the string and range for the import statement
    */
-  public getImportStatementStringAndRangeInCurrentFile(fileName: string): ImportDetail {
-    const allPackageImportsInCurrentFile: Parser.SyntaxNode[] = this.getAllPackageNodesInCurrentFile(fileName);
+  public async getImportStatementStringAndRangeInCurrentFile(fileName: string): Promise<ImportDetail> {
+    const allPackageImportsInCurrentFile: Parser.SyntaxNode[] = await this.getAllPackageNodesInCurrentFile(fileName);
 
     let fullImportStatements: string[] = [];
     let fnOnlyImportStatements: string[] = [];
@@ -676,8 +780,8 @@ class Analyzer {
 
   }
 
-  public getPackageNameImportedForCurrentNode(currentFileName: string, functionToImport: SymbolInformation): Parser.SyntaxNode | undefined {
-    const allPackageImportsInCurrentFile: Parser.SyntaxNode[] = this.getAllPackageNodesInCurrentFile(currentFileName);
+  public async getPackageNameImportedForCurrentNode(currentFileName: string, functionToImport: SymbolInformation): Promise<Parser.SyntaxNode | undefined> {
+    const allPackageImportsInCurrentFile: Parser.SyntaxNode[] = await this.getAllPackageNodesInCurrentFile(currentFileName);
 
     return allPackageImportsInCurrentFile.find(importNode => {
       if (importNode.childForFieldName('package_name')?.text === functionToImport.containerName) {
@@ -686,15 +790,19 @@ class Analyzer {
     });
   }
 
-  public getAllPackageNodesInCurrentFile(fileName: string): Parser.SyntaxNode[] {
-    const currentTree: Parser.Tree = this.uriToTree.get(fileName) as Parser.Tree;
+  public async getAllPackageNodesInCurrentFile(fileName: string): Promise<Parser.SyntaxNode[]> {
+    const currentTree: Parser.Tree | undefined = await this.getTreeFromURI(fileName);
+
+    if (!currentTree) {
+      return [];
+    }
     return [
-      ...currentTree?.rootNode.descendantsOfType('use_no_statement'),
-      ...currentTree?.rootNode.descendantsOfType('use_no_if_statement'),
-      ...currentTree?.rootNode.descendantsOfType('bareword_import'),
-      ...currentTree?.rootNode.descendantsOfType('use_no_subs_statement'),
-      ...currentTree?.rootNode.descendantsOfType('use_no_feature_statement'),
-      ...currentTree?.rootNode.descendantsOfType('use_no_version'),
+      ...currentTree.rootNode.descendantsOfType('use_no_statement'),
+      ...currentTree.rootNode.descendantsOfType('use_no_if_statement'),
+      ...currentTree.rootNode.descendantsOfType('bareword_import'),
+      ...currentTree.rootNode.descendantsOfType('use_no_subs_statement'),
+      ...currentTree.rootNode.descendantsOfType('use_no_feature_statement'),
+      ...currentTree.rootNode.descendantsOfType('use_no_version'),
       // ...currentTree?.rootNode.descendantsOfType('require_statement'),
     ];
   }

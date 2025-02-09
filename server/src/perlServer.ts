@@ -1,5 +1,5 @@
 import { TextDocument } from "vscode-languageserver-textdocument";
-import { ClientCapabilities, CompletionItem, CompletionParams, Connection, Definition, DefinitionParams, Hover, HoverParams, InitializeParams, MarkupContent, MarkupKind, Range, SymbolInformation, SymbolKind, TextDocuments, TextEdit } from "vscode-languageserver/node";
+import { ClientCapabilities, CompletionItem, CompletionParams, Connection, Definition, DefinitionParams, Hover, HoverParams, InitializeParams, Location, MarkupContent, MarkupKind, Range, ReferenceParams, SymbolInformation, SymbolKind, TextDocuments, TextEdit } from "vscode-languageserver/node";
 import * as Parser from 'web-tree-sitter';
 import Analyzer from "./analyzer";
 import { initializeParser } from "./parser";
@@ -95,6 +95,7 @@ export default class PerlServer {
     this.connection.onCompletion(this.onCompletion.bind(this));
     this.connection.onCompletionResolve(this.onCompletionResolve.bind(this));
     this.connection.onDefinition(this.onDefinition.bind(this));
+    this.connection.onReferences(this.onReferences.bind(this));
     this.connection.onHover(this.onHover.bind(this));
   }
 
@@ -235,13 +236,25 @@ export default class PerlServer {
     return variableCompletions;
   }
 
-  private onCompletionResolve(item: CompletionItem) {
+  private async onCompletionResolve(item: CompletionItem) {
     if (item.kind === SymbolKind.Method) {
-      item.additionalTextEdits = this.analyzer.getAdditionalEditsForFunctionImports(item.data.currentFileName, item.data.functionToImport);
+      // item.additionalTextEdits = await this.analyzer.getAdditionalEditsForFunctionImports(item.data.currentFileName, item.data.functionToImport);
     }
     // item.documentation = "some doc"; // TODO: implement it
 
      return item;
+  }
+
+  private async onReferences(params: ReferenceParams): Promise<Location[]> {
+    params.context.includeDeclaration = true;
+
+    const nodeAtPoint = await this.getNodeAtPoint(params);
+
+    if (!nodeAtPoint) {
+      return [];
+    }
+
+    return this.analyzer.findAllReferences(params.textDocument.uri, nodeAtPoint);
   }
 
   private async onHover(params: HoverParams): Promise<Hover | null> {
