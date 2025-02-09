@@ -1,5 +1,5 @@
 import { TextDocument } from "vscode-languageserver-textdocument";
-import { ClientCapabilities, CompletionItem, CompletionParams, Connection, Definition, DefinitionParams, Hover, HoverParams, InitializeParams, Location, MarkupContent, MarkupKind, Range, ReferenceParams, SymbolInformation, SymbolKind, TextDocuments, TextEdit } from "vscode-languageserver/node";
+import { ClientCapabilities, CompletionItem, CompletionParams, Connection, Definition, DefinitionParams, DocumentHighlight, DocumentHighlightKind, DocumentHighlightParams, Hover, HoverParams, InitializeParams, Location, MarkupContent, MarkupKind, Range, ReferenceParams, SymbolInformation, SymbolKind, TextDocuments, TextEdit } from "vscode-languageserver/node";
 import * as Parser from 'web-tree-sitter';
 import Analyzer from "./analyzer";
 import { initializeParser } from "./parser";
@@ -96,6 +96,7 @@ export default class PerlServer {
     this.connection.onCompletionResolve(this.onCompletionResolve.bind(this));
     this.connection.onDefinition(this.onDefinition.bind(this));
     this.connection.onReferences(this.onReferences.bind(this));
+    this.connection.onDocumentHighlight(this.onDocumentHighlight.bind(this));
     this.connection.onHover(this.onHover.bind(this));
   }
 
@@ -255,6 +256,21 @@ export default class PerlServer {
     }
 
     return this.analyzer.findAllReferences(params.textDocument.uri, nodeAtPoint);
+  }
+
+  // TODO: make this work properly
+  // Currently, it only works for functions and variables.
+  // Make it work for packages, and not for other stuffs like if else blocks
+  private async onDocumentHighlight(params: DocumentHighlightParams): Promise<DocumentHighlight[]> {
+    const nodeAtPoint = await this.getNodeAtPoint(params);
+
+    if (!nodeAtPoint) {
+      return [];
+    }
+
+    const allLocations: Location[] = this.analyzer.findAllReferences(params.textDocument.uri, nodeAtPoint);
+
+    return allLocations.map(eachLocation => DocumentHighlight.create(eachLocation.range, DocumentHighlightKind.Read));
   }
 
   private async onHover(params: HoverParams): Promise<Hover | null> {

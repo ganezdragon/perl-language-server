@@ -53,7 +53,12 @@ connection.onInitialize(async (params: InitializeParams): Promise<InitializeResu
 			// goto implementation
 			implementationProvider: false,
 
-			referencesProvider: true,
+			referencesProvider: {
+				workDoneProgress: true
+			},
+			documentHighlightProvider: {
+				workDoneProgress: true
+			},
 		}
 	};
 	if (hasWorkspaceFolderCapability) {
