@@ -55,6 +55,18 @@ function getRangeForNode(node: SyntaxNode): Range {
   );
 }
 
+export function getContinuousRangeForNodes(nodes: SyntaxNode[]): Range[] {
+  nodes.forEach(node => {
+    const range = getRangeForNode(node);
+  });
+
+  return [];
+}
+
+export function getRangeForURI(uri: string): Range {
+  return Range.create(0, 0, 0, 0);
+}
+
 /**
  * Given a node, recursively finds the first package that its under.
  * Could return null if not found (probably a pl file?)
@@ -67,6 +79,12 @@ function getPackageNodeForNode(node: SyntaxNode): SyntaxNode | null {
 
   // return the last package that you encouter
   return package_statements.length > 0 ? package_statements[package_statements.length - 1] : node.parent !== null ? getPackageNodeForNode(node.parent) : null;
+}
+
+export function getListOfRangeForPackageStatements(allPackageNodes: SyntaxNode[]): Range[] {
+  return allPackageNodes.map((packageNode: SyntaxNode) => {
+    return getRangeForNode(packageNode);
+  });
 }
 
 export {

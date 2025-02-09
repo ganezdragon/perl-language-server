@@ -1,14 +1,13 @@
 import * as Parser from 'web-tree-sitter';
 import * as fs from 'fs/promises';
 import { TextDocument } from 'vscode-languageserver-textdocument';
-import { Connection, Definition, Diagnostic, DiagnosticSeverity, InitializeParams, SymbolInformation, SymbolKind, } from 'vscode-languageserver/node';
+import { Connection, Definition, Diagnostic, DiagnosticSeverity, InitializeParams, Position, Range, SymbolInformation, SymbolKind, TextEdit, } from 'vscode-languageserver/node';
 import { getGlobPattern } from './util/perl_utils';
 import { getFilesFromPath } from './util/file';
-import { forEachNode, forEachNodeAnalyze, getPackageNodeForNode, getRangeForNode } from './util/tree_sitter_utils';
-import { AnalyzeMode, CachingStrategy, ExtensionSettings, FileDeclarations, URIToTree } from './types/common.types';
-import { promisify } from 'util';
+import { forEachNode, forEachNodeAnalyze, getContinuousRangeForNodes, getListOfRangeForPackageStatements, getPackageNodeForNode, getRangeForNode, getRangeForURI } from './util/tree_sitter_utils';
+import { AnalyzeMode, CachingStrategy, ExtensionSettings, FileDeclarations, FunctionDetail, ImportDetail, URIToTree } from './types/common.types';
 import { fileURLToPath } from 'url';
-
+import { extractSubroutineNameFromFullFunctionName } from './util/basic';
 
 class Analyzer {
   // dependencies
@@ -312,7 +311,7 @@ class Analyzer {
           finally {
             fileCounter = fileCounter + 1;
 
-            connection.console.debug(`Analyzed file ${uri} , prob - ${problemsCounter}, fileC - ${fileCounter}, goal - ${totalFiles}, mem - ${process.memoryUsage().heapUsed / 1024 / 1024} MB`);
+            // connection.console.debug(`Analyzed file ${uri} , prob - ${problemsCounter}, fileC - ${fileCounter}, goal - ${totalFiles}, mem - ${process.memoryUsage().heapUsed / 1024 / 1024} MB`);
             
             let percentage: number = Math.round( (fileCounter / totalFiles) * 100 );
             progress.report(percentage, `in progress - ${percentage}%`);
@@ -424,6 +423,21 @@ class Analyzer {
     let symbolsMatchingWord: SymbolInformation[] = [];
 
     this.uriToFunctionDeclarations.forEach((functionDeclarations, thisUri) => {
+      let onlyValues: SymbolInformation[] | undefined = Array.from(functionDeclarations.values()).at(0);
+
+      // get the package completions
+      if (onlyValues && onlyValues[0].containerName?.includes(word)) {
+        symbolsMatchingWord.push(
+          SymbolInformation.create(
+            onlyValues[0].containerName,
+            SymbolKind.Package,
+            getRangeForURI(thisUri),
+            thisUri,
+            '',
+          ),
+        );
+      }
+
       // Iterate over the key and value of the Map
       functionDeclarations.forEach((valueSymbolInformation, keyFunctionName) => {
         if (keyFunctionName.includes(word)) {
@@ -528,6 +542,161 @@ class Analyzer {
         )
       )
     });    
+  }
+
+  public getAdditionalEditsForFunctionImports(currentFileName: string, functionToImport: SymbolInformation): TextEdit[] | undefined {
+    // if same file function or no package, no need to import
+    if (currentFileName === functionToImport.location.uri || !(functionToImport.containerName)) {
+      return [];
+    }
+
+    let getAllPackagesAndRangesInCurrentFile: ImportDetail = this.getImportStatementStringAndRangeInCurrentFile(currentFileName);
+
+    // Find if package already imported
+    // if it is full package, leave it.
+    // else if has functions, add your function
+    // else, add new package with that fn
+    // replace package block in first Range, and then nullify all the Ranges
+
+    let functionNameToImport: string = extractSubroutineNameFromFullFunctionName(functionToImport.name);
+
+    let functionImportAlreadyExists: boolean = false;
+    getAllPackagesAndRangesInCurrentFile.fnOnlyImportStatements.forEach((statement, index) => {
+      if (statement.match(new RegExp(`${functionToImport.containerName}`))) {
+        if (statement.match(new RegExp(`\\b${functionNameToImport}\\b`))) {
+          functionImportAlreadyExists = true;
+          return;
+        }
+        else {
+          // if given `use Data::Dumper qw( Dumper Something ); ---> extracts only "Dumper" and "Something"
+          let functionsInCurrentLine: string[] = statement.split('qw')[1].split('(')[1].split(')')[0].split(' ').filter(value => value !== '');
+          functionsInCurrentLine.push(functionNameToImport);
+
+          functionsInCurrentLine.sort();
+          getAllPackagesAndRangesInCurrentFile.fnOnlyImportStatements[index] = `use ${functionToImport.containerName} qw( ${functionsInCurrentLine.join(' ')} );`;
+          functionImportAlreadyExists = true;
+        }
+      }
+    });
+
+    if (!functionImportAlreadyExists) {
+      getAllPackagesAndRangesInCurrentFile.fnOnlyImportStatements.push(`use ${functionToImport.containerName} qw( ${functionNameToImport} );`);
+    }
+
+    let newImportStatements: string = this.sortPackageBlocksInCurrentFile(getAllPackagesAndRangesInCurrentFile.fullImportStatements, getAllPackagesAndRangesInCurrentFile.fnOnlyImportStatements);
+
+    let additionDeleteTextEdits: TextEdit[] = [];
+    getAllPackagesAndRangesInCurrentFile.range.forEach((range, index) => {
+      if (index > 0) {
+        additionDeleteTextEdits.push(TextEdit.del(range));
+      }
+    });
+
+    return [
+      // {
+      //   range: getAllPackagesAndRangesInCurrentFile.range[0],
+      //   newText: newImportStatements,
+      // },
+      TextEdit.replace(Range.create(getAllPackagesAndRangesInCurrentFile.range[0].start, getAllPackagesAndRangesInCurrentFile.range[5].end), newImportStatements),
+      // TextEdit.insert(getAllPackagesAndRangesInCurrentFile.range[0].start, newImportStatements),
+      // ...additionDeleteTextEdits,
+    ];
+  }
+
+  public getUsualBlockForPackagesInCurrentFile(currentFileName: string): Range {
+    const currentTree: Parser.Tree = this.uriToTree.get(currentFileName) as Parser.Tree;
+
+    currentTree
+
+    return Range.create(
+     0,0,0,0
+    )
+  }
+
+  public sortPackageBlocksInCurrentFile(fullImportPackages: string[], fnOnlyImportPackages: string[]): string {
+
+    const packagesToBeAtTop: string[] = [
+      'strict',
+      'warnings',
+    ];
+
+    let fullPackagesAtTop: string[] = fullImportPackages.filter((importString, index) => {
+      // if its `use strict;` ---> then gets only "strict"
+      if (packagesToBeAtTop.includes(importString.split(' ')[1].split(';')[0])) {
+        return true;
+      }
+    })
+
+    fullImportPackages = fullImportPackages.filter(importString => !packagesToBeAtTop.includes(importString.split(' ')[1].split(';')[0]));
+
+    let fnOnlyPackageAtTop = fnOnlyImportPackages.filter((importString, index) => {
+      if (packagesToBeAtTop.includes(importString.split(' ')[1].split(';')[0])) {
+        return true;
+      }
+    });
+
+    fnOnlyImportPackages = fnOnlyImportPackages.filter(importString => !packagesToBeAtTop.includes(importString.split(' ')[1].split(';')[0]));
+    
+    return fullPackagesAtTop.sort().join('\n')
+      + ((fullPackagesAtTop.length > 0) ? "\n\n" : '')
+      + fnOnlyPackageAtTop.sort().join('\n')
+      + ((fnOnlyPackageAtTop.length > 0) ? "\n\n" : '')
+      + fullImportPackages.sort().join('\n')
+      + ((fullImportPackages.length > 0) ? "\n\n" : '')
+      + fnOnlyImportPackages.sort().join('\n');
+  }
+
+  /**
+   * Given a fileName, returns the string and range for the import statement
+   */
+  public getImportStatementStringAndRangeInCurrentFile(fileName: string): ImportDetail {
+    const allPackageImportsInCurrentFile: Parser.SyntaxNode[] = this.getAllPackageNodesInCurrentFile(fileName);
+
+    let fullImportStatements: string[] = [];
+    let fnOnlyImportStatements: string[] = [];
+    let ranges: Range [] = [];
+
+    allPackageImportsInCurrentFile.forEach((statement: Parser.SyntaxNode, index: number) => {
+      if (statement.child(2)?.type === 'word_list_qw') {
+        fnOnlyImportStatements.push(statement.text);
+      }
+      else {
+        fullImportStatements.push(statement.text);
+      }
+
+      ranges.push(getRangeForNode(statement));
+      
+    });
+
+    return {
+      fullImportStatements: fullImportStatements,
+      fnOnlyImportStatements: fnOnlyImportStatements,
+      range: ranges,
+    };
+
+  }
+
+  public getPackageNameImportedForCurrentNode(currentFileName: string, functionToImport: SymbolInformation): Parser.SyntaxNode | undefined {
+    const allPackageImportsInCurrentFile: Parser.SyntaxNode[] = this.getAllPackageNodesInCurrentFile(currentFileName);
+
+    return allPackageImportsInCurrentFile.find(importNode => {
+      if (importNode.childForFieldName('package_name')?.text === functionToImport.containerName) {
+        return importNode;
+      }
+    });
+  }
+
+  public getAllPackageNodesInCurrentFile(fileName: string): Parser.SyntaxNode[] {
+    const currentTree: Parser.Tree = this.uriToTree.get(fileName) as Parser.Tree;
+    return [
+      ...currentTree?.rootNode.descendantsOfType('use_no_statement'),
+      ...currentTree?.rootNode.descendantsOfType('use_no_if_statement'),
+      ...currentTree?.rootNode.descendantsOfType('bareword_import'),
+      ...currentTree?.rootNode.descendantsOfType('use_no_subs_statement'),
+      ...currentTree?.rootNode.descendantsOfType('use_no_feature_statement'),
+      ...currentTree?.rootNode.descendantsOfType('use_no_version'),
+      // ...currentTree?.rootNode.descendantsOfType('require_statement'),
+    ];
   }
 
   public async getHoverContentAndRangeForNode(uri: string, line: number, column: number): Promise<string | null> {

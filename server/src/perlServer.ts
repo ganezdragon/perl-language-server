@@ -1,10 +1,11 @@
 import { TextDocument } from "vscode-languageserver-textdocument";
-import { ClientCapabilities, CompletionItem, CompletionParams, Connection, Definition, DefinitionParams, Hover, HoverParams, InitializeParams, MarkupContent, MarkupKind, Range, SymbolInformation, SymbolKind, TextDocuments } from "vscode-languageserver/node";
+import { ClientCapabilities, CompletionItem, CompletionParams, Connection, Definition, DefinitionParams, Hover, HoverParams, InitializeParams, MarkupContent, MarkupKind, Range, SymbolInformation, SymbolKind, TextDocuments, TextEdit } from "vscode-languageserver/node";
 import * as Parser from 'web-tree-sitter';
 import Analyzer from "./analyzer";
 import { initializeParser } from "./parser";
-import { CachingStrategy, ExtensionSettings } from "./types/common.types";
+import { CachingStrategy, ExtensionSettings, FunctionCallStyle, FunctionDetail, ImportStyle, StatementWithRange } from "./types/common.types";
 import { getRangeForNode } from "./util/tree_sitter_utils";
+import { extractSubroutineNameFromFullFunctionName } from "./util/basic";
 
 export default class PerlServer {
   // dependencies to be injected
@@ -17,7 +18,7 @@ export default class PerlServer {
   // The global settings, used when the `workspace/configuration` request is not supported by the client.
   // Please note that this is not the case when using this server with the client provided in this example
   // but could happen with other clients.
-  private defaultSettings: ExtensionSettings = { showAllErrors: false, maxNumberOfProblems: 1000, caching: CachingStrategy.eager};
+  private defaultSettings: ExtensionSettings = { showAllErrors: false, maxNumberOfProblems: 1000, caching: CachingStrategy.eager, importStyle: ImportStyle.functionOnly, functionCallStyle: FunctionCallStyle.packageNameAndFunctionName };
   private globalSettings: ExtensionSettings = this.defaultSettings;
 
   // Cache the settings of all open documents
@@ -117,6 +118,9 @@ export default class PerlServer {
   private async onCompletion(params: CompletionParams): Promise<CompletionItem[]> {
     let variableCompletions: CompletionItem[] = [];
     let userFunctionCompletions: CompletionItem[] = [];
+    let importCompletions: CompletionItem[] = [];
+
+    const settings: ExtensionSettings = await this.getDocumentSettings('all');
 
     const nodeBefore: Parser.SyntaxNode | null | undefined = await this.getNodeBeforePoint(params);
     if (!nodeBefore || nodeBefore.previousSibling?.type === 'scope') {
@@ -135,15 +139,40 @@ export default class PerlServer {
           break;
       }
     }
-    else if (params.context?.triggerKind === 1) {
+    else if (params.context?.triggerKind === 1 || params.context?.triggerKind === 3) {
       const userFunctions: SymbolInformation[] = this.analyzer.findFunctionDeclarationMatchingWord(nodeBefore.text, params.textDocument.uri);
 
-      userFunctionCompletions = userFunctions.map(functionSymbol => ({
-        label: functionSymbol.name,
-        kind: SymbolKind.Method, // I know its not a method, but the UI looks good for this instead of Function
-        insertText: functionSymbol.name + '()',
-        // additionalTextEdits: getAdditionalEditsForFunctionImports(nodeBefore, functionSymbol),
-      }));
+      const isImportCompletion: boolean = nodeBefore.parent?.parent?.type === 'use_no_statement';
+
+      userFunctions.forEach(functionSymbol => {
+        if (functionSymbol.kind === SymbolKind.Package) {
+          importCompletions.push({
+            label: functionSymbol.name,
+            detail: `(package) ${functionSymbol.name}`,
+            sortText: functionSymbol.name,
+            filterText: functionSymbol.name,
+            kind: SymbolKind.Package,
+            insertText: isImportCompletion ? functionSymbol.name : functionSymbol.name + '::',
+          });
+        }
+        else {
+          if (! isImportCompletion) {
+            userFunctionCompletions.push({
+              label: extractSubroutineNameFromFullFunctionName(functionSymbol.name),
+              detail: `(subroutine) ${functionSymbol.name}`,
+              sortText: functionSymbol.name,
+              filterText: functionSymbol.name,
+              // commitCharacters: [':'],
+              data: {
+                currentFileName: params.textDocument.uri,
+                functionToImport: functionSymbol,
+              },
+              kind: SymbolKind.Method, // I know its not a method, but the UI looks good for this instead of Function
+              insertText: functionSymbol.name + '()',
+            });
+          }
+        }
+      });
 
       variableCompletions = await this.getVariableNodesForCompletion(params, nodeBefore);
     }
@@ -151,8 +180,34 @@ export default class PerlServer {
     return [
       ...variableCompletions,
       ...userFunctionCompletions,
+      ...importCompletions,
     ];
   }
+
+  private getRangeAndStatementToInsert(currentNode: Parser.SyntaxNode, statementToInsert: string): StatementWithRange {
+    const rootNode: Parser.SyntaxNode = currentNode.tree.rootNode;
+    const useNoStatements: Parser.SyntaxNode[] = rootNode.descendantsOfType('use_no_statement');
+    let statementToReturn: string = statementToInsert;
+
+    if (useNoStatements.length > 0) {
+        const statementNode: Parser.SyntaxNode | undefined = useNoStatements.find((useNoStatement: Parser.SyntaxNode) => {
+            return (useNoStatement.child(1)?.text === statementToInsert);
+        });
+        statementToReturn = statementNode?.child(1)?.text || statementToInsert;
+    }
+
+    // check for package statements, and constants, and then import
+    return {
+        range: Range.create(
+            rootNode.startPosition.row,
+            rootNode.startPosition.column,
+            rootNode.startPosition.row,
+            rootNode.startPosition.column,
+        ),
+        statement: statementToReturn,
+    }
+
+}
 
   private async getVariableNodesForCompletion(params: CompletionParams, nodeBefore: Parser.SyntaxNode): Promise<CompletionItem[]> {
     let variableCompletions: CompletionItem[] = [];
@@ -181,7 +236,12 @@ export default class PerlServer {
   }
 
   private onCompletionResolve(item: CompletionItem) {
-    return item;
+    if (item.kind === SymbolKind.Method) {
+      item.additionalTextEdits = this.analyzer.getAdditionalEditsForFunctionImports(item.data.currentFileName, item.data.functionToImport);
+    }
+    // item.documentation = "some doc"; // TODO: implement it
+
+     return item;
   }
 
   private async onHover(params: HoverParams): Promise<Hover | null> {

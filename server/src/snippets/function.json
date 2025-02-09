@@ -1,0 +1,11 @@
+{
+    "function declaration": {
+        "prefix": "sub",
+        "body": [
+            "sub $1 {",
+            "\t$2",
+            "}"
+        ],
+        "description": "A Simple Function declaration"
+    }
+}

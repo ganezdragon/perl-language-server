@@ -19,6 +19,54 @@
 			"\t$2",
 			"}"
 		],
-		"description": "The simple if condition"
+		"description": "A simple if condition"
+	},
+	"if else statement": {
+		"prefix": "ife",
+		"body": [
+			"if ($1) {",
+			"\t$2",
+			"}",
+			"else {",
+			"\t$3",
+			"}"
+		],
+		"description": "A simple if else condition"
+	},
+	"unless statement": {
+		"prefix": "unless",
+		"body": [
+			"unless ($1) {",
+			"\t$2",
+			"}"
+		],
+		"description": "A simple unless condition"
+	},
+	"while statement": {
+		"prefix": "while",
+		"body": [
+			"while ($1) {",
+			"\t$2",
+			"}"
+		],
+		"description": "A simple while condition"
+	},
+	"for statement": {
+		"prefix": "for",
+		"body": [
+			"for ($1) {",
+			"\t$2",
+			"}"
+		],
+		"description": "A simple for condition"
+	},
+	"foreach statement": {
+		"prefix": "foreach",
+		"body": [
+			"foreach my $1 ($2) {",
+			"\t$3",
+			"}"
+		],
+		"description": "A simple foreach condition"
 	}
 }

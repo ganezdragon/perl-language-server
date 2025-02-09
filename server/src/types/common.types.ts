@@ -1,10 +1,22 @@
-import { Range, SymbolInformation, URI } from "vscode-languageserver/node"
+import { Range, SymbolInformation, TextEdit, URI } from "vscode-languageserver/node"
 import { Tree } from "web-tree-sitter";
 
 interface ExtensionSettings {
   showAllErrors: boolean;
 	maxNumberOfProblems: number;
   caching: CachingStrategy;
+  importStyle: ImportStyle;
+  functionCallStyle: FunctionCallStyle;
+}
+
+enum FunctionCallStyle {
+  packageNameAndFunctionName = "packageNameAndFunctionName",
+  functionNameOnly = "functionNameOnly",
+}
+
+enum ImportStyle {
+  fullPackage = "fullPackage",
+  functionOnly = "functionOnly",
 }
 
 enum CachingStrategy {
@@ -32,6 +44,17 @@ interface StatementWithRange {
   statement: string;
 }
 
+interface FunctionDetail {
+  name: string;
+  edits: TextEdit[] | undefined;
+}
+
+export interface ImportDetail {
+  fullImportStatements: string[];
+  fnOnlyImportStatements: string[];
+  range: Range[];
+}
+
 export {
   ExtensionSettings,
   CachingStrategy,
@@ -40,4 +63,7 @@ export {
   URIToTree,
   WordWithType,
   StatementWithRange,
+  FunctionDetail,
+  ImportStyle,
+  FunctionCallStyle,
 }

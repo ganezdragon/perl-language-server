@@ -1,4 +1,4 @@
-const DEFAULT_PERL_GLOB_PATTERN = '**/*@(.pl|.pm)';
+const DEFAULT_PERL_GLOB_PATTERN = '**/*@(.pl|.pm|.t|.esp)';
 
 function getGlobPattern(): string {
   const { GLOB_PATTERN } = process.env;
