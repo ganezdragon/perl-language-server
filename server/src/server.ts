@@ -56,6 +56,10 @@ connection.onInitialize(async (params: InitializeParams): Promise<InitializeResu
 			referencesProvider: {
 				workDoneProgress: true
 			},
+			renameProvider: {
+				workDoneProgress: true,
+				// prepareProvider: true,
+			},
 			documentHighlightProvider: {
 				workDoneProgress: true
 			},

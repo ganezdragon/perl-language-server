@@ -1,11 +1,11 @@
 import * as Parser from 'web-tree-sitter';
 import * as fs from 'fs/promises';
 import { TextDocument } from 'vscode-languageserver-textdocument';
-import { Connection, Definition, Diagnostic, DiagnosticSeverity, InitializeParams, Location, Position, Range, SymbolInformation, SymbolKind, TextEdit, } from 'vscode-languageserver/node';
+import { Connection, Definition, Diagnostic, DiagnosticSeverity, ErrorCodes, InitializeParams, Location, Position, Range, ResponseError, SymbolInformation, SymbolKind, TextEdit, WorkspaceEdit, } from 'vscode-languageserver/node';
 import { getGlobPattern } from './util/perl_utils';
 import { getFilesFromPath } from './util/file';
 import { forEachNode, forEachNodeAnalyze, getContinuousRangeForNodes, getListOfRangeForPackageStatements, getPackageNodeForNode, getRangeForNode, getRangeForURI } from './util/tree_sitter_utils';
-import { AnalyzeMode, CachingStrategy, ExtensionSettings, FileDeclarations, FunctionDetail, FunctionReference, ImportDetail, URIToTree } from './types/common.types';
+import { AnalyzeMode, CachingStrategy, ExtensionSettings, FileDeclarations, ImportDetail, URIToTree } from './types/common.types';
 import { fileURLToPath } from 'url';
 import { extractSubroutineNameFromFullFunctionName } from './util/basic';
 
@@ -17,7 +17,7 @@ class Analyzer {
   private uriToTree: URIToTree = new Map();
   private uriToVariableDeclarations: FileDeclarations = new Map();
   private uriToFunctionDeclarations: FileDeclarations = new Map();
-  private uriToFunctionReferences: FunctionReference = new Map();
+  private uriToFunctionReferences: FileDeclarations = new Map();
 
   /**
    * The constructor which injects the dependencies
@@ -50,8 +50,10 @@ class Analyzer {
       this.uriToTree.set(uri, tree.copy());
     }
 
+    // reset when the file is being analyzed again
     // this.uriToVariableDeclarations[uri] = {};
     this.uriToFunctionDeclarations.set(uri, new Map());
+    this.uriToFunctionReferences.set(uri, new Map());
 
 
     /**
@@ -233,11 +235,9 @@ class Analyzer {
       const functionName: string = functionNameNode.text;
       const packageName: string = functionNode.descendantsOfType("package_name")[0]?.text || '';
 
-      if (!this.uriToFunctionReferences.has(functionName)) {
-        this.uriToFunctionReferences.set(functionName, []);
-      }
+      let namedReferences = this.uriToFunctionReferences.get(document.uri)?.get(functionName) || [];
 
-      this.uriToFunctionReferences.get(functionName)?.push(
+      namedReferences.push(
         SymbolInformation.create(
           functionName,
           SymbolKind.Function,
@@ -246,6 +246,12 @@ class Analyzer {
           packageName,
         ),
       );
+
+      const existingReferences = this.uriToFunctionReferences.get(document.uri);
+      existingReferences?.set(functionName, namedReferences);
+      if (existingReferences) {
+        this.uriToFunctionReferences.set(document.uri, existingReferences);
+      }
     });
   }
 
@@ -493,7 +499,12 @@ class Analyzer {
     // else its a function
     else {
       let packageToRefer: string = nodeAtPoint.parent?.descendantsOfType("package_name")[0]?.text || '';
-      let allFunctionSymbolsMatchingName: SymbolInformation[] = this.uriToFunctionReferences.get(identifierName) || [];
+      let allFunctionSymbolsMatchingName: SymbolInformation[] = [];
+
+      this.uriToFunctionReferences.forEach((functionReferences, thisUri) => {
+        const referenceNames: SymbolInformation[] = functionReferences?.get(identifierName) || [];
+        allFunctionSymbolsMatchingName.push(...referenceNames);
+      });
 
       // TODO: have references pick based on the package name properly
       // symbols.push(
@@ -516,6 +527,94 @@ class Analyzer {
 
     return symbols.map(symbol => symbol.location);
 
+  }
+
+  public renameSymbol(fileName: string, nodeAtPoint: Parser.SyntaxNode, newName: string): WorkspaceEdit {
+    if (nodeAtPoint.type.match(/_variable$/)) {
+      return this.renameVariable(fileName, nodeAtPoint, newName);
+    }
+
+    else if (nodeAtPoint.parent?.type.match(/call_expression/) || nodeAtPoint.parent?.type.match(/function_definition/)) {
+      return this.renameFunction(fileName, nodeAtPoint, newName);
+    }
+
+    throw new ResponseError(ErrorCodes.InvalidParams, 'Not a symbol to be renamed');
+  }
+
+
+  public renameFunction(fileName: string, nodeAtPoint: Parser.SyntaxNode, newName: string): WorkspaceEdit {
+    // validate function name
+    if (newName.length === 0) {
+      throw new ResponseError(ErrorCodes.InvalidParams, 'Function name cannot be empty');
+    }
+
+    let renameChanges : {
+      [uri: string]: TextEdit[];
+    } = {};
+    const functionName: string = nodeAtPoint.text;
+
+    let allFunctionSymbolsMatchingName: SymbolInformation[] = [];
+
+    this.uriToFunctionReferences.forEach((functionReferences, thisUri) => {
+      const referenceNames: SymbolInformation[] = functionReferences?.get(functionName) || [];
+      allFunctionSymbolsMatchingName.push(...referenceNames);
+    });
+
+    allFunctionSymbolsMatchingName.forEach(functionRef => {
+      let additionalEditsInFile: TextEdit[] = renameChanges[functionRef.location.uri] || [];
+      additionalEditsInFile.push(
+        {
+          newText: newName,
+          range: functionRef.location.range
+        }
+      );
+      renameChanges[functionRef.location.uri] = additionalEditsInFile;
+    });
+
+    // get the function declaration as well
+    this.uriToFunctionDeclarations.forEach((functionDeclarations, thisUri) => {
+      const declarationNames: SymbolInformation[] = functionDeclarations?.get(functionName) || [];
+      declarationNames.forEach((declaration: SymbolInformation) => {
+        let additionalEditsInFile: TextEdit[] = renameChanges[declaration.location.uri] || [];
+        additionalEditsInFile.push(
+          {
+            newText: newName,
+            range: declaration.location.range
+          }
+        );
+
+        renameChanges[declaration.location.uri] = additionalEditsInFile;
+      });
+    });
+
+    return {
+      changes: renameChanges,      
+    }
+
+  }
+
+  public renameVariable(fileName: string, nodeAtPoint: Parser.SyntaxNode, newName: string): WorkspaceEdit {
+    // validate variable name
+    if (newName.length === 0) {
+      throw new ResponseError(ErrorCodes.InvalidParams, 'Variable name cannot be empty');
+    }
+    const allVariablesAvailableForCurrentScope: Parser.SyntaxNode[] = this.getAllVariablesWithInScopeAtCurrentNode(fileName, nodeAtPoint, true);
+
+    let newTextEdits: TextEdit[] = [];
+
+    allVariablesAvailableForCurrentScope.forEach(variable => {
+      newTextEdits.push(
+        TextEdit.replace(
+          getRangeForNode(variable),
+          newName,
+        )
+      )
+    });
+    return {
+      changes: {
+        [fileName]: newTextEdits,
+      }
+    };
   }
 
   public findFunctionDeclarationMatchingWord(word: string, currentURI: string): SymbolInformation[] {

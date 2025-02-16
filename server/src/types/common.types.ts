@@ -31,7 +31,6 @@ enum AnalyzeMode {
 
 type Declarations = Map<string, SymbolInformation[]>;
 type FileDeclarations = Map<URI, Declarations>;
-export type FunctionReference = Map<string, SymbolInformation[]>;
 
 type URIToTree = Map<URI, Tree>;
 

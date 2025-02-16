@@ -1,5 +1,5 @@
 import { TextDocument } from "vscode-languageserver-textdocument";
-import { ClientCapabilities, CompletionItem, CompletionParams, Connection, Definition, DefinitionParams, DocumentHighlight, DocumentHighlightKind, DocumentHighlightParams, Hover, HoverParams, InitializeParams, Location, MarkupContent, MarkupKind, Range, ReferenceParams, SymbolInformation, SymbolKind, TextDocuments, TextEdit } from "vscode-languageserver/node";
+import { ClientCapabilities, CompletionItem, CompletionParams, Connection, Definition, DefinitionParams, DocumentHighlight, DocumentHighlightKind, DocumentHighlightParams, ErrorCodes, Hover, HoverParams, InitializeParams, Location, MarkupContent, MarkupKind, Range, ReferenceParams, RenameParams, ResponseError, SymbolInformation, SymbolKind, TextDocumentPositionParams, TextDocuments, TextEdit, WorkspaceEdit } from "vscode-languageserver/node";
 import * as Parser from 'web-tree-sitter';
 import Analyzer from "./analyzer";
 import { initializeParser } from "./parser";
@@ -96,6 +96,8 @@ export default class PerlServer {
     this.connection.onCompletionResolve(this.onCompletionResolve.bind(this));
     this.connection.onDefinition(this.onDefinition.bind(this));
     this.connection.onReferences(this.onReferences.bind(this));
+    this.connection.onRenameRequest(this.onRenameRequest.bind(this));
+    // this.connection.onPrepareRename(this.onPrepareRename.bind(this))
     this.connection.onDocumentHighlight(this.onDocumentHighlight.bind(this));
     this.connection.onHover(this.onHover.bind(this));
   }
@@ -257,6 +259,26 @@ export default class PerlServer {
 
     return this.analyzer.findAllReferences(params.textDocument.uri, nodeAtPoint);
   }
+
+  private async onRenameRequest(params: RenameParams): Promise<WorkspaceEdit> {
+    let nodeAtPoint = await this.getNodeAtPoint(params);
+
+    if (!nodeAtPoint) {
+      throw new ResponseError(ErrorCodes.InvalidParams, 'No symbol to rename');
+    }
+
+    return this.analyzer.renameSymbol(params.textDocument.uri, nodeAtPoint, params.newName);
+  }
+
+  // private async onPrepareRename(params: TextDocumentPositionParams): Promise<{ range: Range, placeholder: string }> {
+  //   const nodeAtPoint = await this.getNodeAtPoint(params);
+
+
+  //   return {
+  //     range: Range.create(0, 0, 0, 0),
+  //     placeholder: 'this is placeholder',
+  //   };
+  // }
 
   // TODO: make this work properly
   // Currently, it only works for functions and variables.
