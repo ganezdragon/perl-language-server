@@ -58,7 +58,7 @@ connection.onInitialize(async (params: InitializeParams): Promise<InitializeResu
 			},
 			renameProvider: {
 				workDoneProgress: true,
-				// prepareProvider: true,
+				prepareProvider: true,
 			},
 			documentHighlightProvider: {
 				workDoneProgress: true

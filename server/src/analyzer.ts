@@ -603,12 +603,14 @@ class Analyzer {
     let newTextEdits: TextEdit[] = [];
 
     allVariablesAvailableForCurrentScope.forEach(variable => {
-      newTextEdits.push(
-        TextEdit.replace(
-          getRangeForNode(variable),
-          newName,
-        )
-      )
+      if (variable.text === nodeAtPoint.text) {
+        newTextEdits.push(
+          TextEdit.replace(
+            getRangeForNode(variable),
+            newName,
+          )
+        );
+      }
     });
     return {
       changes: {
