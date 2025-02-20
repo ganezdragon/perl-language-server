@@ -908,16 +908,25 @@ class Analyzer {
     ];
   }
 
-  public async getHoverContentAndRangeForNode(uri: string, line: number, column: number): Promise<string | null> {
-    const node: Parser.SyntaxNode | null = await this.getNodeAtPoint(uri, line, column);
+  public async getHoverContentForNode(uri: string, line: number, column: number): Promise<string | null> {
+    const nodeAtPoint: Parser.SyntaxNode | null = await this.getNodeAtPoint(uri, line, column);
 
-    if (!node) {
+    if (!nodeAtPoint) {
       return null;
     }
 
-    node?.parent
+    if (nodeAtPoint.type.match(/_variable$/)) {
+      // removing indentation, so that it renders that way
+      return `
+    my ${nodeAtPoint.text}; # ${nodeAtPoint.type}`;
+    }
 
-    return node?.toString() || "";
+    else if (nodeAtPoint.parent?.type.match(/call_expression/)) {
+      return `
+    sub ${nodeAtPoint.parent.text}; # function`;
+    }
+
+    return null;
   }
 }
 

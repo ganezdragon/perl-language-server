@@ -299,7 +299,7 @@ export default class PerlServer {
   }
 
   private async onHover(params: HoverParams): Promise<Hover | null> {
-    const content: string | null = await this.analyzer.getHoverContentAndRangeForNode(
+    const content: string | null = await this.analyzer.getHoverContentForNode(
       params.textDocument.uri,
       params.position.line,
       params.position.character,
@@ -313,11 +313,11 @@ export default class PerlServer {
       kind: MarkupKind.Markdown,
       value: content,
     };
-    const range: Range | undefined = undefined;
     
     return {
       contents: markdownContent,
-      range: range,
+      // skipping the optional range for now.
+      // range: Range.create(0, 0, 1, 0),
     };
   }
 
