@@ -4,14 +4,16 @@ A simple perl language server written in typescript, with a client that's also w
 
 ## Features
 
-- Syntax check (beta)
-- Function Navigation
-- Variable Navigation
+- Syntax check
+- Goto Function definition
+- Goto Variable definition
 - Variable autocomplete
-- Function autocomplete (beta)
+- Function autocomplete
+- Rename symbol
+- Find all references
+- Hover provider
+- Symbol highlighting
 
-
-> Other features coming up in the alpha release
 
 ## Upcoming features
 - Integrated debugger
@@ -34,6 +36,10 @@ This extension contributes the following settings:
   - Or, check out your `ulimit`. Further reading - https://stackoverflow.com/questions/52406217/why-cant-i-construct-webassembly-memory-in-browsers
 
 ## Release Notes
+
+### 2.0.0
+
+alpha release, with usable features.
 
 ### 0.0.1
 

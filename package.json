@@ -1,8 +1,8 @@
 {
   "name": "perl-language-server",
-  "displayName": "Perl IDE (beta)",
-  "description": "Perl IDE (beta)",
-  "version": "1.1.2",
+  "displayName": "Perl IDE",
+  "description": "Provides tree-sitter based language support for Perl.",
+  "version": "2.0.0",
   "scripts": {
     "compile": "tsc -b",
     "clean": "rm -rf server/out && rm -rf client/out",
@@ -22,6 +22,16 @@
     "type": "git",
     "url": "https://github.com/ganezdragon/perl-language-server"
   },
+  "keywords": [
+    "perl",
+    "perl ide",
+    "perl language server",
+    "perl debugger",
+    "perl tree-sitter",
+    "tree-sitter",
+    "tree-sitter perl"
+  ],
+  "icon": "client/images/perl_logo.png",
   "categories": [
     "Programming Languages"
   ],
