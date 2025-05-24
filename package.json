@@ -14,7 +14,8 @@
   },
   "main": "./client/out/extension",
   "activationEvents": [
-    "onLanguage:perl"
+    "onLanguage:perl",
+    "onDebug"
   ],
   "author": "ganezdragon",
   "publisher": "ganezdragon",
@@ -118,6 +119,31 @@
       {
         "language": "perl",
         "path": "./server/src/snippets/function.json"
+      }
+    ],
+    "breakpoints": [
+      {
+        "language": "perl"
+      }
+    ],
+    "debuggers": [
+      {
+        "type": "perl",
+        "label": "Perl Debug",
+        "program": "./server/out/debugger/debugAdapter.js",
+        "runtime": "node",
+        "languages": [
+          "perl"
+        ],
+        "initialConfigurations": [
+          {
+            "type": "perl",
+            "request": "launch",
+            "name": "Launch current file",
+            "program": "${file}",
+            "stopOnEntry": true
+          }
+        ]
       }
     ]
   },
