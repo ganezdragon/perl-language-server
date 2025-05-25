@@ -1,6 +1,16 @@
-import { DebugSession, InitializedEvent, OutputEvent, StoppedEvent, TerminatedEvent, Breakpoint } from '@vscode/debugadapter';
+import {
+    Breakpoint,
+    DebugSession,
+    InitializedEvent,
+    OutputEvent,
+    StoppedEvent,
+    TerminatedEvent,
+    StackFrame,
+    Source,
+    Thread
+} from '@vscode/debugadapter';
 import { DebugProtocol } from '@vscode/debugprotocol';
-import { PerlProcess, Breakpoint as PerlBreakpoint } from './perlProcess';
+import { PerlProcess } from './perlProcess';
 
 interface PerlLaunchRequestArguments extends DebugProtocol.LaunchRequestArguments {
     program: string;
@@ -8,23 +18,23 @@ interface PerlLaunchRequestArguments extends DebugProtocol.LaunchRequestArgument
 }
 
 export class PerlDebugSession extends DebugSession {
-
-    private perlProcess: PerlProcess | undefined;
+    private perlProcess?: PerlProcess;
     private breakpoints = new Map<string, DebugProtocol.Breakpoint[]>();
 
-    private currentFile: string | undefined;
-    private currentLine: number | undefined;
+    // Track current source location for stack trace
+    private currentFile: string = '';
+    private currentLine: number = 1;
 
-    protected launchRequest(response: DebugProtocol.LaunchResponse, args: PerlLaunchRequestArguments): void {
+    constructor() {
+        super();
+    }
+
+    protected launchRequest(
+        response: DebugProtocol.LaunchResponse,
+        args: PerlLaunchRequestArguments
+    ): void {
         const program = args.program;
         const cwd = args.cwd || process.cwd();
-
-        this.currentFile = "/Users/ganesans/Documents/working/personal/test/testing.pl"; // your launched script
-        this.currentLine = 1; // from debugger output if possible
-
-        this.sendEvent(new StoppedEvent('breakpoint', 1));
-
-        
 
         if (!program) {
             this.sendErrorResponse(response, {
@@ -34,15 +44,22 @@ export class PerlDebugSession extends DebugSession {
             return;
         }
 
-        this.perlProcess = new PerlProcess(program, cwd);
-        this.perlProcess.start();
+        this.currentFile = program;
+        this.perlProcess = new PerlProcess();
+        this.perlProcess.start(program, cwd);
 
         this.perlProcess.on('output', (output: string) => {
             this.sendEvent(new OutputEvent(output, 'stdout'));
-        });
 
-        this.perlProcess.on('stopped', () => {
-            this.sendEvent(new StoppedEvent('breakpoint', 1));
+            // Try to extract the line number
+            const line = this.perlProcess!.getOutput().match(/line (\d+)/);
+            if (line) {
+                this.currentLine = parseInt(line[1], 10);
+            }
+
+            if (output.includes('DB<')) {
+                this.sendEvent(new StoppedEvent('breakpoint', 1));
+            }
         });
 
         this.perlProcess.on('terminated', () => {
@@ -53,46 +70,50 @@ export class PerlDebugSession extends DebugSession {
         this.sendEvent(new InitializedEvent());
     }
 
-    protected setBreakPointsRequest(response: DebugProtocol.SetBreakpointsResponse, args: DebugProtocol.SetBreakpointsArguments): void {
+    protected continueRequest(
+        response: DebugProtocol.ContinueResponse,
+        args: DebugProtocol.ContinueArguments
+    ): void {
+        this.perlProcess?.continue();
+        this.sendResponse(response);
+    }
+
+    protected disconnectRequest(response: DebugProtocol.DisconnectResponse): void {
+        this.perlProcess?.stop();
+        this.perlProcess = undefined;
+        this.sendResponse(response);
+    }
+
+    protected setBreakPointsRequest(
+        response: DebugProtocol.SetBreakpointsResponse,
+        args: DebugProtocol.SetBreakpointsArguments
+    ): void {
         const path = args.source.path as string;
         const clientLines = args.lines || [];
 
-        const bps: DebugProtocol.Breakpoint[] = clientLines.map(line => {
+        const breakpoints: DebugProtocol.Breakpoint[] = clientLines.map(line => {
             return new Breakpoint(true, line);
         });
 
-        this.breakpoints.set(path, bps);
+        this.breakpoints.set(path, breakpoints);
 
-        if (this.perlProcess) {
-            const perlBps: PerlBreakpoint[] = clientLines.map(line => ({ file: path, line }));
-            this.perlProcess.setBreakpoints(perlBps);
-        }
+        this.perlProcess?.setBreakpoints(
+            clientLines.map(line => ({ file: path, line }))
+        );
 
         response.body = {
-            breakpoints: bps
+            breakpoints: breakpoints
         };
+
         this.sendResponse(response);
     }
 
-    protected continueRequest(response: DebugProtocol.ContinueResponse, args: DebugProtocol.ContinueArguments): void {
-        if (this.perlProcess) {
-            this.perlProcess.continue();
-        }
-        this.sendResponse(response);
-    }
-
-    protected nextRequest(response: DebugProtocol.NextResponse, args: DebugProtocol.NextArguments): void {
-        if (this.perlProcess) {
-            this.perlProcess.stepOver();
-        }
-        this.sendResponse(response);
-    }
-
-    protected disconnectRequest(response: DebugProtocol.DisconnectResponse, args: DebugProtocol.DisconnectArguments): void {
-        if (this.perlProcess) {
-            this.perlProcess.stop();
-            this.perlProcess = undefined;
-        }
+    protected threadsRequest(response: DebugProtocol.ThreadsResponse): void {
+        response.body = {
+            threads: [
+                new Thread(1, 'main')
+            ]
+        };
         this.sendResponse(response);
     }
 
@@ -100,24 +121,14 @@ export class PerlDebugSession extends DebugSession {
         response: DebugProtocol.StackTraceResponse,
         args: DebugProtocol.StackTraceArguments
     ): void {
-        const frames: DebugProtocol.StackFrame[] = [];
-    
-        frames.push({
-            id: 1,
-            name: 'main', // or current function name if you can get
-            source: {
-                path: this.currentFile, // track this during stopped event
-            },
-            line: this.currentLine || 1,
-            column: 1,  // Perl debugger has no column info; just default 1
-        });
-    
+        const source = new Source(this.currentFile, this.currentFile);
+        const frame = new StackFrame(1, 'main', source, this.currentLine, 1);
+
         response.body = {
-            stackFrames: frames,
-            totalFrames: frames.length,
+            stackFrames: [frame],
+            totalFrames: 1
         };
-    
+
         this.sendResponse(response);
     }
-    
 }
