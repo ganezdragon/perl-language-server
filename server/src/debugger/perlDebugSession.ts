@@ -1,15 +1,16 @@
 import {
     Breakpoint,
+    ContinuedEvent,
     DebugSession,
     InitializedEvent,
     OutputEvent,
+    Source,
     StoppedEvent,
     TerminatedEvent,
-    StackFrame,
-    Source,
     Thread
 } from '@vscode/debugadapter';
 import { DebugProtocol } from '@vscode/debugprotocol';
+import { ChildProcess, spawn } from 'child_process';
 import { PerlProcess } from './perlProcess';
 
 interface PerlLaunchRequestArguments extends DebugProtocol.LaunchRequestArguments {
@@ -21,9 +22,9 @@ export class PerlDebugSession extends DebugSession {
     private perlProcess?: PerlProcess;
     private breakpoints = new Map<string, DebugProtocol.Breakpoint[]>();
 
-    // Track current source location for stack trace
-    private currentFile: string = '';
-    private currentLine: number = 1;
+    private isStopped = false; // Flag to prevent multiple StoppedEvents
+
+	private THREADID: number = 1;
 
     constructor() {
         super();
@@ -44,25 +45,28 @@ export class PerlDebugSession extends DebugSession {
             return;
         }
 
-        this.currentFile = program;
-        this.perlProcess = new PerlProcess();
-        this.perlProcess.start(program, cwd);
+        let childProcess: ChildProcess = spawn('perl', ['-d', program], { cwd: cwd });
 
+        this.perlProcess = new PerlProcess(childProcess);
+
+        // register for all events
         this.perlProcess.on('output', (output: string) => {
             this.sendEvent(new OutputEvent(output, 'stdout'));
+        });
 
-            // Try to extract the line number
-            const line = this.perlProcess!.getOutput().match(/line (\d+)/);
-            if (line) {
-                this.currentLine = parseInt(line[1], 10);
-            }
-
-            if (output.includes('DB<')) {
+        this.perlProcess.on('stopped', () => {
+            if (!this.isStopped) {
                 this.sendEvent(new StoppedEvent('breakpoint', 1));
+                this.isStopped = true;
             }
         });
 
-        this.perlProcess.on('terminated', () => {
+        this.perlProcess.on('continued', () => {
+            this.isStopped = false;
+            this.sendEvent(new ContinuedEvent(this.THREADID));
+        });
+
+        this.perlProcess.on('terminated', (code: number | null) => {
             this.sendEvent(new TerminatedEvent());
         });
 
@@ -78,11 +82,29 @@ export class PerlDebugSession extends DebugSession {
         this.sendResponse(response);
     }
 
+    protected nextRequest(
+        response: DebugProtocol.NextResponse,
+        args: DebugProtocol.NextArguments
+    ): void {
+        this.perlProcess?.next();
+        this.sendResponse(response);
+    }
+
     protected disconnectRequest(response: DebugProtocol.DisconnectResponse): void {
         this.perlProcess?.stop();
         this.perlProcess = undefined;
         this.sendResponse(response);
     }
+
+    // protected variablesRequest(
+    //     response: DebugProtocol.VariablesResponse,
+    //     args: DebugProtocol.VariablesArguments, request?: DebugProtocol.Request
+    // ): void {
+    //     response.body = {
+    //         variables: []
+    //     };
+    //     this.sendResponse(response);
+    // }
 
     protected setBreakPointsRequest(
         response: DebugProtocol.SetBreakpointsResponse,
@@ -108,27 +130,47 @@ export class PerlDebugSession extends DebugSession {
         this.sendResponse(response);
     }
 
+	// need this for vscode debugger highlight as well
     protected threadsRequest(response: DebugProtocol.ThreadsResponse): void {
         response.body = {
             threads: [
-                new Thread(1, 'main')
+                new Thread(this.THREADID, 'main')
             ]
         };
         this.sendResponse(response);
     }
 
-    protected stackTraceRequest(
+    protected async stackTraceRequest(
         response: DebugProtocol.StackTraceResponse,
         args: DebugProtocol.StackTraceArguments
-    ): void {
-        const source = new Source(this.currentFile, this.currentFile);
-        const frame = new StackFrame(1, 'main', source, this.currentLine, 1);
+    ): Promise<void> {
+        
+		let stackTrace: string | undefined = await this.perlProcess?.trace();
 
-        response.body = {
-            stackFrames: [frame],
-            totalFrames: 1
-        };
-
-        this.sendResponse(response);
+        // get the first line from stacktrace
+        if (stackTrace) {
+            const firstLine = stackTrace.split('\n')[0];
+            const match = firstLine.match(/file '(.+)' line (\d+)/);
+            if (match) {
+                response.body = {
+                    stackFrames: [{
+                        id: 1,
+                        name: 'main',
+                        source: new Source(match[1], match[1]),
+                        line: parseInt(match[2], 10),
+                        column: 1
+                    }],
+                    totalFrames: 1
+                };
+                this.sendResponse(response);
+            }
+            else {
+                response.body = {
+                    stackFrames: [],
+                    totalFrames: 0
+                }
+                this.sendResponse(response);
+            }
+        }
     }
 }

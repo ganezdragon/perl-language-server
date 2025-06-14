@@ -1,6 +1,5 @@
-import { EventEmitter } from 'events';
-import { ChildProcessWithoutNullStreams, spawn } from 'child_process';
-import { StreamCatcher } from './streamCatcher';
+import { ChildProcess } from 'node:child_process';
+import { EventEmitter } from 'node:events';
 
 export interface Breakpoint {
     file: string;
@@ -8,82 +7,97 @@ export interface Breakpoint {
 }
 
 export class PerlProcess extends EventEmitter {
-    private process: ChildProcessWithoutNullStreams | undefined;
-    private streamCatcher: StreamCatcher;
-    private pendingStackTraceResolve?: (stack: { file: string; line: number } | null) => void;
+    private process: ChildProcess;
+    private buffer: string;
+    private readyPrompt: RegExp;
+    private waitingResolvers: any[];
 
-    constructor(private program: string, private cwd: string) {
+    constructor(childProcess: ChildProcess) {
         super();
-        this.streamCatcher = new StreamCatcher();
+
+        this.process = childProcess;
+        this.buffer = '';
+        this.readyPrompt = /DB<\d+>/;
+        this.waitingResolvers = [];
+
+        this.process.stdout?.setEncoding('utf8');
+        this.process.stdout?.on('data', (data) => {
+            console.log("at STD OUT............");
+            this.buffer += data;
+            this._processBuffer();
+            // this.emit('output', data.toString());
+
+            if (data.includes('DB<')) {
+                // Perl debugger prompt detected
+                this.emit('stopped', data);
+            }
+        });
+
+        this.process.stderr?.setEncoding('utf8');
+        this.process.stderr?.on('data', (data) => {
+            console.log("at STDERR............", data);
+            this.buffer += data;
+            this._processBuffer();
+            this.emit('output', data.toString());
+
+            // if (data.includes('DB<')) {
+            if (/DB<\d> $/.test(data)) {
+                // Perl debugger prompt detected
+                this.emit('stopped', data);
+            }
+        });
+
+        this.process.on('close', (code) => {
+            console.log(`Perl process exited with code ${code}`);
+        });
+
     }
 
-    public start() {
-        this.process = spawn('perl', ['-d', this.program], { cwd: this.cwd });
-
-        this.process.stdout.on('data', (data: Buffer) => {
-            const output = data.toString();
-            this.streamCatcher.handleOutput(output);
-            this.emit('output', output);
-
-            if (this.pendingStackTraceResolve) {
-                const match = output.match(/called from file '(.*)' line (\d+)/);
-                if (match) {
-                    const [, file, lineStr] = match;
-                    this.pendingStackTraceResolve({ file, line: parseInt(lineStr, 10) });
-                    this.pendingStackTraceResolve = undefined;
-                }
+    private _processBuffer(): void {
+        if (this.readyPrompt.test(this.buffer)) {
+            // Resolve the oldest pending request
+            const output = this.buffer;
+            this.buffer = '';
+            if (this.waitingResolvers.length > 0) {
+                const resolve = this.waitingResolvers.shift();
+                resolve(output);
             }
+        }
+    }
 
-            if (this.streamCatcher.isDebuggerPrompt(output)) {
-                this.emit('stopped');
-            }
+    private _sendCommand(command: string): Promise<string> {
+        return new Promise((resolve) => {
+            this.waitingResolvers.push(resolve);
+            this.process.stdin?.write(command);
         });
+    }
 
-        this.process.stderr.on('data', (data: Buffer) => {
-            const output = data.toString();
-            this.streamCatcher.handleOutput(output);
-            this.emit('output', output);
-        });
-
-        this.process.on('exit', (code: number | null) => {
-            this.emit('terminated', code);
-        });
+    public async trace(): Promise<string> {
+        const output: string = await this._sendCommand('T\n');
+        return output;
     }
 
     public setBreakpoints(breakpoints: Breakpoint[]) {
-        if (!this.process) return;
-
         for (const bp of breakpoints) {
             const cmd = `b ${bp.file}:${bp.line}\n`;
-            this.sendCommand(cmd);
+            this._sendCommand(cmd);
         }
     }
 
-    public continue() {
-        this.sendCommand("c\n");
+    public async continue() {
+        this.emit('continued', {});
+        await this._sendCommand("c\n");
     }
 
-    private sendCommand(cmd: string) {
-        if (this.process && this.process.stdin.writable) {
-            this.process.stdin.write(cmd);
-        }
+    public async next() {
+        this.emit('continued', {});
+        await this._sendCommand("n\n");
     }
 
     public stop() {
         if (this.process) {
             this.process.kill();
         }
-    }
-
-    public getOutput(): string {
-        return this.streamCatcher.getFullOutput();
-    }
-
-    public requestStackTrace(): Promise<{ file: string; line: number } | null> {
-        return new Promise((resolve) => {
-            this.pendingStackTraceResolve = resolve;
-            this.sendCommand("T\n");
-        });
     }
 }
  
