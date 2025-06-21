@@ -10,6 +10,7 @@
 	"dependencies": {
 		"@vscode/debugadapter": "^1.68.0",
 		"@vscode/debugprotocol": "^1.68.0",
+		"await-notify": "^1.0.1",
 		"fast-glob": "^3.3.2",
 		"vscode-languageserver": "^9.0.1",
 		"vscode-languageserver-textdocument": "^1.0.11",
