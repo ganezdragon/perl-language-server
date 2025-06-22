@@ -90,7 +90,10 @@ export function getKeyValuesFromHashContext(hashContextStr: string): Record<stri
     let indent: number | null = null;
 
     for (const line of lines) {
-        if (line.startsWith('HASH') || line.match(/\w+=HASH/)) {
+        if (
+            line.startsWith('HASH') || line.match(/\w+=HASH/)
+            || line.startsWith('(') || line.startsWith(')')
+        ) {
             continue;
         }
 
@@ -180,4 +183,14 @@ function splitOnUnquotedArrow(line: string): [string, string] | null {
   }
 
   return null;
+}
+
+export function getActualVariableValueFromListContext(listContextStr: string, variableName: string): string {
+  if (variableName.startsWith('@')) {
+    return listContextStr;
+  }
+  else {
+    // remove the first string '0'
+    return listContextStr.replace('0', '');
+  }
 }

@@ -14,7 +14,8 @@ import {
 import { DebugProtocol } from '@vscode/debugprotocol';
 import { ChildProcess, spawn } from 'child_process';
 import { PerlProcess } from './perlProcess';
-import { getKeyValuesFromHashContext, getValuesFromArrayContext, NestedVariable, NestedVariableType } from './variable';
+import { getActualVariableValueFromListContext, getKeyValuesFromHashContext, getValuesFromArrayContext, NestedVariable, NestedVariableType } from './variable';
+import { parsePerlStackTrace, PerlStackFrame } from './stackTrace';
 const { Subject } = require('await-notify');
 
 interface PerlLaunchRequestArguments extends DebugProtocol.LaunchRequestArguments {
@@ -26,7 +27,7 @@ export class PerlDebugSession extends DebugSession {
     private perlProcess?: PerlProcess;
     private breakpoints = new Map<string, DebugProtocol.Breakpoint[]>();
 
-    private isStopped = false; // Flag to prevent multiple StoppedEvents
+    private shouldStop = true; // Flag to prevent multiple StoppedEvents
 
 	private THREADID: number = 1;
 
@@ -181,25 +182,26 @@ export class PerlDebugSession extends DebugSession {
         });
 
         this.perlProcess.on('stopped', () => {
-            if (!this.isStopped) {
+            if (this.shouldStop) {
+                this.shouldStop = false;
                 this.sendEvent(new StoppedEvent('breakpoint', this.THREADID));
-                this.isStopped = true;
             }
         });
 
         this.perlProcess.on('continued', () => {
-            this.isStopped = false;
+            this.shouldStop = true;
             this.sendEvent(new ContinuedEvent(this.THREADID));
         });
 
         this.perlProcess.on('stopOnStep', () => {
-            this.isStopped = false;
+            this.shouldStop = false;
             this.sendEvent(new StoppedEvent('step', this.THREADID))
         })
 
         this.perlProcess.on('terminated', (code: number | null) => {
             this.sendEvent(new TerminatedEvent());
         });
+        // end of all events
 
         this.sendResponse(response);
         this.sendEvent(new InitializedEvent());
@@ -424,14 +426,18 @@ export class PerlDebugSession extends DebugSession {
     }
 
     protected async evaluateRequest(response: DebugProtocol.EvaluateResponse, args: DebugProtocol.EvaluateArguments): Promise<void> {
-        const result: string | undefined = await this.perlProcess?.evaluate(args.expression);
-        // value would be like below, so split it and get 1th element
-        // eg: 0  3433
-        const value: string = result?.split('  ')[1] || '';
-        response.body = {
-            result: value,
-            variablesReference: this.getVariableReferenceFromValue(value)
-        };
+        let result: string | undefined = await this.perlProcess?.evaluate(args.expression);
+
+        if (result) {
+            // Trim any trailing lines that might contain DB<number>
+            result = result.replace(/\n\s*DB<\d+>.*$/, '');
+            result = getActualVariableValueFromListContext(result, args.expression);
+
+            response.body = {
+                result: result,
+                variablesReference: this.getVariableReferenceFromValue(result, NestedVariableType.Array),
+            };
+        }
         this.sendResponse(response);
     }
 
@@ -475,7 +481,7 @@ export class PerlDebugSession extends DebugSession {
     protected threadsRequest(response: DebugProtocol.ThreadsResponse): void {
         response.body = {
             threads: [
-                new Thread(this.THREADID, 'main')
+                new Thread(this.THREADID, 'main thread')
             ]
         };
         this.sendResponse(response);
@@ -485,27 +491,33 @@ export class PerlDebugSession extends DebugSession {
         response: DebugProtocol.StackTraceResponse,
         args: DebugProtocol.StackTraceArguments
     ): Promise<void> {
+
+        // perl is going to return all stack frames,
+        // so just return all for all requests
+        if (args.startFrame !=- 0) {
+            return this.sendResponse(response);
+        }
         
 		let stackTrace: string | undefined = await this.perlProcess?.trace();
 
-        // get the first line from stacktrace
         if (stackTrace) {
-            const firstLine = stackTrace.split('\n')[0];
-            const match = firstLine.match(/file '(.+)' line (\d+)/);
-            if (match) {
-                response.success = true;
-                response.body = {
-                    stackFrames: [{
-                        id: 1,
-                        name: 'main',
-                        source: new Source(match[1], match[1]),
-                        line: parseInt(match[2], 10),
-                        column: 1
-                    }],
-                    totalFrames: 1
-                };
-                this.sendResponse(response);
-            }
+            const result: PerlStackFrame[] = parsePerlStackTrace(stackTrace);
+
+            response.body = {
+                stackFrames: result.map((frame, index) => {
+                    return {
+                        id: index,
+                        name: `:(${frame.context}) ${frame.caller}`,
+                        source: new Source(frame.callee, frame.fullPath),
+                        line: frame.line,
+                        column: 1,
+                        canRestart: true,
+                        presentationHint: 'normal',
+                    };
+                }),
+                totalFrames: result.length
+            };
+            this.sendResponse(response);
         }
     }
 }
