@@ -1,6 +1,7 @@
 export enum NestedVariableType {
     Array = 'array',
     Hash = 'hash',
+    Scalar = 'scalar',
 }
 
 export class NestedVariable {
@@ -11,6 +12,42 @@ export class NestedVariable {
         this.type = type;
         this.content = content;
     }
+}
+
+export function extractVariables(variables: string): string[] {
+    // Explanation of the regex:
+    // (?:^|\n) - Starts at the beginning of the string or after a newline
+    // ([$%@][^\n]* - Captures a line starting with $, %, or @
+    // (?:\n(?![$%@])[^\n]*)* - Captures any subsequent lines that don't start with $, %, @
+    // The global flag g ensures we find all matches
+    const pattern: RegExp = /(?:^|\n)([$%@][^\n]*(?:\n(?![$%@])[^\n]*)*)/g;
+    const matches: string[] = [];
+
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(variables)) !== null) {
+        // Trim any trailing lines that might contain DB<number>
+        let result = match[1].replace(/\n\s*DB<\d+>.*$/, '');
+        matches.push(result);
+    }
+
+    return matches;
+}
+
+export function getListLengthFromValue(arrayStr: string): number {
+    // ^\s{3}(\d+)\b matches:
+    // ^\s{3} → Only match numbers at the beginning of lines with exactly 3 spaces (top-level)
+    // (\d+) → one or more digits (captures the index)
+    // \b → word boundary to avoid partial matches
+    const regex = /^\s{3}(\d+)\b/gm;
+    let matches: RegExpExecArray | null;
+    let lastIndex: number = 0;
+    
+    // Find all matches
+    while ((matches = regex.exec(arrayStr)) !== null) {
+        lastIndex = parseInt(matches[1], 10);
+    }
+    
+    return lastIndex ? lastIndex + 1 : 0;
 }
 
 // when given the following,
@@ -185,12 +222,22 @@ function splitOnUnquotedArrow(line: string): [string, string] | null {
   return null;
 }
 
-export function getActualVariableValueFromListContext(listContextStr: string, variableName: string): string {
-  if (variableName.startsWith('@')) {
-    return listContextStr;
-  }
-  else {
-    // remove the first string '0'
-    return listContextStr.replace('0', '');
-  }
+export function getActualVariableValueFromListContext(listContextStr: string, variableName: string): { value: string, type?: NestedVariableType } {
+    // Trim any trailing lines that might contain DB<number>
+    listContextStr = listContextStr.replace(/\n\s*DB<\d+>.*$/, '');
+
+    if (variableName.startsWith('@')) {
+        return {
+            value: listContextStr,
+            type: NestedVariableType.Array
+        };
+    }
+    else {
+        // remove the first string '0'
+        listContextStr = listContextStr.replace('0', '').trimStart();
+
+        return {
+            value: listContextStr,
+        }
+    }
 }

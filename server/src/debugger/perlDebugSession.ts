@@ -14,7 +14,7 @@ import {
 import { DebugProtocol } from '@vscode/debugprotocol';
 import { ChildProcess, spawn } from 'child_process';
 import { PerlProcess } from './perlProcess';
-import { getActualVariableValueFromListContext, getKeyValuesFromHashContext, getValuesFromArrayContext, NestedVariable, NestedVariableType } from './variable';
+import { extractVariables, getActualVariableValueFromListContext, getKeyValuesFromHashContext, getListLengthFromValue, getValuesFromArrayContext, NestedVariable, NestedVariableType } from './variable';
 import { parsePerlStackTrace, PerlStackFrame } from './stackTrace';
 const { Subject } = require('await-notify');
 
@@ -33,7 +33,7 @@ export class PerlDebugSession extends DebugSession {
 
     private _configurationDone = new Subject();
 
-    private _variableHandles = new Handles<'locals' | 'packages' | 'globals' | NestedVariable>();
+    private _variableHandles = new Handles<'locals' | 'globals' | NestedVariable>();
     private _reportProgress = false;
     private _useInvalidatedEvent = false;
 
@@ -264,7 +264,7 @@ export class PerlDebugSession extends DebugSession {
                     variableResponse.push({
                         name: index.toString(),
                         value: variable,
-                        variablesReference: this.getVariableReferenceFromValue(variable),
+                        variablesReference: this._getVariableReferenceFromValue(variable),
                     });
                 });
             }
@@ -275,8 +275,22 @@ export class PerlDebugSession extends DebugSession {
                     variableResponse.push({
                         name: key,
                         value: nestedVariables[key],
-                        variablesReference: this.getVariableReferenceFromValue(nestedVariables[key]),
+                        variablesReference: this._getVariableReferenceFromValue(nestedVariables[key]),
                     });
+                });
+            }
+            else if (scope.type === NestedVariableType.Scalar) {
+                /**
+                 * eg:
+                 *  [0] DB<0> x \$a
+                 *  0  SCALAR(0x13e812830)
+                 *  -> undef
+                 */
+                const scalarValue: string = scope.content.replace(/^SCALAR\((0x[0-9a-f]+)\)/, '').replace('->', '').trimStart();
+                variableResponse.push({
+                    name: scope.content,
+                    value: scalarValue,
+                    variablesReference: this._getVariableReferenceFromValue(scalarValue),
                 });
             }
         }
@@ -284,7 +298,7 @@ export class PerlDebugSession extends DebugSession {
             let localVariables: string | undefined = await this.perlProcess?.getLocalScopedVariables();
 
             if (localVariables) {
-                const variables: string[] = this.extractVariables(localVariables);
+                const variables: string[] = extractVariables(localVariables);
                 variables.forEach((variable: string) => {
                     variableResponse.push(this.prettifyVariables(variable, false));
                 });
@@ -295,19 +309,9 @@ export class PerlDebugSession extends DebugSession {
 
             if (globalVariables) {
                 // get key value pairs from string which is like $variable = 10
-                const variables: string[] = this.extractVariables(globalVariables);
+                const variables: string[] = extractVariables(globalVariables);
                 variables.forEach(variable => {
-                    const variableName: string = variable.split(' = ')[0];
-                    const variableValue: string = variable.split(' = ')[1];
-
-                    if (variableValue) {
-                        variableResponse.push({
-                            name: variableName,
-                            value: variableValue,
-                            // type: typeof variableValue,
-                            variablesReference: 0
-                        });
-                    }
+                    variableResponse.push(this.prettifyVariables(variable, false));
                 });
             }
         }
@@ -318,12 +322,15 @@ export class PerlDebugSession extends DebugSession {
         this.sendResponse(response);
     }
 
-    private getVariableReferenceFromValue(variableValue: string, context?: NestedVariableType): number {
+    private _getVariableReferenceFromValue(variableValue: string, context?: NestedVariableType): number {
         if (variableValue.match(/^(\w+=)?HASH\((0x[0-9a-f]+)\)/)) {
             return this._variableHandles.create(new NestedVariable(NestedVariableType.Hash, variableValue));
         }
         else if (variableValue.match(/^ARRAY\((0x[0-9a-f]+)\)/)) {
             return this._variableHandles.create(new NestedVariable(NestedVariableType.Array, variableValue));
+        }
+        else if (variableValue.match(/^SCALAR\((0x[0-9a-f]+)\)/)) {
+            return this._variableHandles.create(new NestedVariable(NestedVariableType.Scalar, variableValue));
         }
         else if (context === NestedVariableType.Array) {
             return this._variableHandles.create(new NestedVariable(NestedVariableType.Array, variableValue));
@@ -334,25 +341,6 @@ export class PerlDebugSession extends DebugSession {
 
         // return 0 if its not nested
         return 0;
-    }
-
-    private extractVariables(variables: string): string[] {
-        // Explanation of the regex:
-        // (?:^|\n) - Starts at the beginning of the string or after a newline
-        // ([$%@][^\n]* - Captures a line starting with $, %, or @
-        // (?:\n(?![$%@])[^\n]*)* - Captures any subsequent lines that don't start with $, %, @
-        // The global flag g ensures we find all matches
-        const pattern: RegExp = /(?:^|\n)([$%@][^\n]*(?:\n(?![$%@])[^\n]*)*)/g;
-        const matches: string[] = [];
-
-        let match: RegExpExecArray | null;
-        while ((match = pattern.exec(variables)) !== null) {
-            // Trim any trailing lines that might contain DB<number>
-            let result = match[1].replace(/\n\s*DB<\d+>.*$/, '');
-            matches.push(result);
-        }
-
-        return matches;
     }
 
     private prettifyVariables(variable: string, isListContext: boolean): DebugProtocol.Variable {
@@ -369,7 +357,7 @@ export class PerlDebugSession extends DebugSession {
                     name: variableName,
                     value: variableValue,
                     evaluateName: variableName,
-                    variablesReference: this.getVariableReferenceFromValue(variableValue),
+                    variablesReference: this._getVariableReferenceFromValue(variableValue),
                 };
             }
             // perl hash objects
@@ -378,7 +366,7 @@ export class PerlDebugSession extends DebugSession {
                     name: variableName,
                     value: `Obj ${variableValue}`,
                     evaluateName: variableName,
-                    variablesReference: this.getVariableReferenceFromValue(variableValue),
+                    variablesReference: this._getVariableReferenceFromValue(variableValue),
                 };
             }
         }
@@ -386,9 +374,9 @@ export class PerlDebugSession extends DebugSession {
         else if (variableName.startsWith('@')) {
             return {
                 name: variableName,
-                value: `[${this.getListLengthFromValue(variableValue)}] ${variableValue}`,
+                value: `[${getListLengthFromValue(variableValue)}] ${variableValue}`,
                 evaluateName: variableName,
-                variablesReference: this.getVariableReferenceFromValue(variableValue, NestedVariableType.Array),
+                variablesReference: this._getVariableReferenceFromValue(variableValue, NestedVariableType.Array),
             };
         }
         // hash
@@ -397,7 +385,7 @@ export class PerlDebugSession extends DebugSession {
                 name: variableName,
                 value: variableValue,
                 evaluateName: variableName,
-                variablesReference: this.getVariableReferenceFromValue(variableValue, NestedVariableType.Hash),
+                variablesReference: this._getVariableReferenceFromValue(variableValue, NestedVariableType.Hash),
             };
         }
 
@@ -408,34 +396,15 @@ export class PerlDebugSession extends DebugSession {
         };
     }
 
-    private getListLengthFromValue(arrayStr: string): number {
-        // ^\s{3}(\d+)\b matches:
-        // ^\s{3} → Only match numbers at the beginning of lines with exactly 3 spaces (top-level)
-        // (\d+) → one or more digits (captures the index)
-        // \b → word boundary to avoid partial matches
-        const regex = /^\s{3}(\d+)\b/gm;
-        let matches: RegExpExecArray | null;
-        let lastIndex: number = 0;
-        
-        // Find all matches
-        while ((matches = regex.exec(arrayStr)) !== null) {
-            lastIndex = parseInt(matches[1], 10);
-        }
-        
-        return lastIndex ? lastIndex + 1 : 0;
-    }
-
     protected async evaluateRequest(response: DebugProtocol.EvaluateResponse, args: DebugProtocol.EvaluateArguments): Promise<void> {
-        let result: string | undefined = await this.perlProcess?.evaluate(args.expression);
+        const result: string | undefined = await this.perlProcess?.evaluate(args.expression);
 
         if (result) {
-            // Trim any trailing lines that might contain DB<number>
-            result = result.replace(/\n\s*DB<\d+>.*$/, '');
-            result = getActualVariableValueFromListContext(result, args.expression);
+            let parsedResult: { value: string, type?: NestedVariableType } = getActualVariableValueFromListContext(result, args.expression);
 
             response.body = {
-                result: result,
-                variablesReference: this.getVariableReferenceFromValue(result, NestedVariableType.Array),
+                result: `${parsedResult.value}`,
+                variablesReference: this._getVariableReferenceFromValue(parsedResult.value, parsedResult.type),
             };
         }
         this.sendResponse(response);
@@ -470,7 +439,6 @@ export class PerlDebugSession extends DebugSession {
 		response.body = {
 			scopes: [
 				new Scope("Locals & Closure", this._variableHandles.create('locals'), false),
-                new Scope("Package Variables", this._variableHandles.create('packages'), true),
                 new Scope("Globals", this._variableHandles.create('globals'), true)
 			]
 		};

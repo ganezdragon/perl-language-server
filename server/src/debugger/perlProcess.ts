@@ -170,6 +170,10 @@ export class PerlProcess extends EventEmitter {
 
     public async evaluate(expression: string): Promise<string> {
         return this._sync(async () => {
+            // add '\' if the variable is a %hash
+            if (expression.startsWith('%')) {
+                expression = `\\${expression}`
+            }
             const output: string = await this._sendCommand(`x ${expression}\n`);
             return output;
         });
