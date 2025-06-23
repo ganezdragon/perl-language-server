@@ -4,6 +4,8 @@ import { EventEmitter } from 'node:events';
 export interface Breakpoint {
     file: string;
     line: number;
+    condition?: string;
+    subName?: string;
 }
 
 export class PerlProcess extends EventEmitter {
@@ -26,25 +28,27 @@ export class PerlProcess extends EventEmitter {
         this.readyPrompt = /DB<\d+>/;
         this.waitingResolvers = [];
 
+        // basically nothing should be coming off of STDOUT
+        // yes, perl redirects everything to STDERR
         this.process.stdout?.setEncoding('utf8');
         this.process.stdout?.on('data', (data) => {
-            console.log("at STD OUT............");
             this.buffer += data;
             this._processBuffer();
-            // this.emit('output', data.toString());
+            this.emit('stdout.output', data.toString());
 
-            if (data.includes('DB<')) {
+            // if (data.includes('DB<')) {
+            if (/DB<\d+> $/.test(data)) {
                 // Perl debugger prompt detected
                 this.emit('stopped', data);
             }
         });
 
+        // main channel
         this.process.stderr?.setEncoding('utf8');
         this.process.stderr?.on('data', (data) => {
-            console.log("at STDERR............", data);
             this.buffer += data;
             this._processBuffer();
-            this.emit('output', data.toString());
+            // this.emit('stderr.output', data.toString());
 
             // if (data.includes('DB<')) {
             if (/DB<\d+> $/.test(data)) {
@@ -98,6 +102,12 @@ export class PerlProcess extends EventEmitter {
         });
     }
 
+    public async autoFlushStdOut() {
+        return this._sync(async () => {
+            await this._sendCommand("$| = 1;\n");
+        });
+    }
+
     public async trace(): Promise<string> {
         return this._sync(async () => {
             const output: string = await this._sendCommand('T\n');
@@ -108,7 +118,16 @@ export class PerlProcess extends EventEmitter {
     public async setBreakpoints(breakpoints: Breakpoint[]) {
         return this._sync(async () => {
             for (const bp of breakpoints) {
-                const cmd = `b ${bp.file}:${bp.line}\n`;
+                const cmd = `b ${bp.file}:${bp.line} ${bp.condition}\n`;
+                await this._sendCommand(cmd);
+            }
+        });
+    }
+
+    public async deleteBreakpoints(lines: number[]) {
+        return this._sync(async () => {
+            for (const line of lines) {
+                const cmd = `B ${line}\n`;
                 await this._sendCommand(cmd);
             }
         });

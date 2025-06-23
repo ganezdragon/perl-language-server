@@ -34,6 +34,7 @@ export class PerlDebugSession extends DebugSession {
     private _configurationDone = new Subject();
 
     private _variableHandles = new Handles<'locals' | 'globals' | NestedVariable>();
+
     private _reportProgress = false;
     private _useInvalidatedEvent = false;
 
@@ -176,8 +177,14 @@ export class PerlDebugSession extends DebugSession {
 
         this.perlProcess = new PerlProcess(childProcess);
 
+        // set things on the process
+        this.perlProcess.autoFlushStdOut();
+
         // register for all events
-        this.perlProcess.on('output', (output: string) => {
+        this.perlProcess.on('stderr.output', (output: string) => {
+            this.sendEvent(new OutputEvent(output, 'stdout'));
+        });
+        this.perlProcess.on('stdout.output', (output: string) => {
             this.sendEvent(new OutputEvent(output, 'stdout'));
         });
 
@@ -410,15 +417,24 @@ export class PerlDebugSession extends DebugSession {
         this.sendResponse(response);
     }
 
+
+    // this function would be called for each source
     protected async setBreakPointsRequest(
         response: DebugProtocol.SetBreakpointsResponse,
-        args: DebugProtocol.SetBreakpointsArguments
+        args: DebugProtocol.SetBreakpointsArguments,
+        request: DebugProtocol.Request,
+
     ): Promise<void> {
-        const path = args.source.path as string;
-        const clientLines = args.lines || [];
+        const path: string = args.source.path as string;
+        const clientLines: number[] = args.breakpoints?.map(breakpoint => breakpoint.line) || [];
+
+        // first, delete all existing breakpoints in current file
+        // and then set it later
+        const linesToDelete: number[] = this.breakpoints.get(path)?.map(bp => bp.line || 0) || [];
+        await this.perlProcess?.deleteBreakpoints(linesToDelete);
 
         const breakpoints: DebugProtocol.Breakpoint[] = clientLines.map(line => {
-            return new Breakpoint(true, line);
+            return new Breakpoint(true, line, 1, new Source(path, path));
         });
 
         this.breakpoints.set(path, breakpoints);
