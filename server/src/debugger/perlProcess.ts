@@ -48,7 +48,7 @@ export class PerlProcess extends EventEmitter {
         this.process.stderr?.on('data', (data) => {
             this.buffer += data;
             this._processBuffer();
-            // this.emit('stderr.output', data.toString());
+            this.emit('stderr.output', data.toString());
 
             // if (data.includes('DB<')) {
             if (/DB<\d+> $/.test(data)) {

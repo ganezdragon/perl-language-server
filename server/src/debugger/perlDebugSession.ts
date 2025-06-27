@@ -12,13 +12,14 @@ import {
     Thread
 } from '@vscode/debugadapter';
 import { DebugProtocol } from '@vscode/debugprotocol';
-import { ChildProcess, spawn } from 'child_process';
+import { ChildProcess, spawn, SpawnOptions } from 'child_process';
 import { PerlProcess } from './perlProcess';
 import { extractVariables, getActualVariableValueFromListContext, getKeyValuesFromHashContext, getListLengthFromValue, getValuesFromArrayContext, NestedVariable, NestedVariableType } from './variable';
 import { parsePerlStackTrace, PerlStackFrame } from './stackTrace';
 const { Subject } = require('await-notify');
 
 interface PerlLaunchRequestArguments extends DebugProtocol.LaunchRequestArguments {
+    env: { [key: string]: string };
     program: string;
     cwd?: string;
 }
@@ -92,21 +93,13 @@ export class PerlDebugSession extends DebugSession {
 		// the adapter defines two exceptions filters, one with support for conditions.
 		response.body.supportsExceptionFilterOptions = true;
 		response.body.exceptionBreakpointFilters = [
-			{
-				filter: 'dieOrCroakNamed',
-				label: "Named Die or croak Exception",
-				description: `Break on named exceptions. Enter the exception's name as the Condition.`,
-				default: false,
-				supportsCondition: true,
-				conditionDescription: `Enter the exception's name`
-			},
-			{
-				filter: 'dieOrCroakUnamed',
-				label: "End or Die Exception",
-				description: 'This is a other exception',
-				default: true,
-				supportsCondition: false
-			}
+            {
+                filter: 'die',
+                label: "Uncaught Exception",
+                description: 'Break on a die / croak signal. TODO: this doesn\'t work yet.',
+                default: false,
+                supportsCondition: false,
+            }
 		];
 
 		// make VS Code send exceptionInfo request
@@ -161,6 +154,7 @@ export class PerlDebugSession extends DebugSession {
     ): Promise<void> {
         const program = args.program;
         const cwd = args.cwd || process.cwd();
+        const env: PerlLaunchRequestArguments['env'] = args.env;
 
         // wait 1 second until configuration has finished (and configurationDoneRequest has been called)
 		await this._configurationDone.wait(1000);
@@ -173,7 +167,14 @@ export class PerlDebugSession extends DebugSession {
             return;
         }
 
-        let childProcess: ChildProcess = spawn('perl', ['-d', program], { cwd: cwd });
+        const spawnOptions: SpawnOptions = {
+            detached: true,
+            // stdio: ['pipe', 'pipe', 'pipe'],
+            cwd,
+            env
+        };
+
+        let childProcess: ChildProcess = spawn('perl', ['-d', program], spawnOptions);
 
         this.perlProcess = new PerlProcess(childProcess);
 

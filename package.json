@@ -135,13 +135,56 @@
         "languages": [
           "perl"
         ],
+        "configurationAttributes": {
+          "launch": {
+            "required": [
+              "program"
+            ],
+            "properties": {
+              "program": {
+                "type": "string",
+                "description": "Absolute path to a text file",
+                "default": "${file}"
+              },
+              "stopOnEntry": {
+                "type": "boolean",
+                "description": "Automatically stop after launch",
+                "default": false
+              },
+              "args": {
+                "type": "string",
+                "description": "Arguments passed to the program. Basically your @ARGV in Perl.",
+                "default": ""
+              },
+              "env": {
+                "type": "object",
+                "description": "Environment variables to be used",
+                "default": {}
+              }
+            }
+          }
+        },
         "initialConfigurations": [
           {
             "type": "perl",
             "request": "launch",
             "name": "Launch current file",
             "program": "${file}",
-            "stopOnEntry": true
+            "stopOnEntry": false
+          }
+        ],
+         "configurationSnippets": [
+          {
+            "label": "Perl Debug: Launch script",
+            "description": "A new configuration for 'debugging' a user selected perl script file",
+            "body": {
+              "type": "perl",
+              "request": "launch",
+              "name": "Launch selected file",
+              "program": "^\"\\${file}\"",
+              "stopOnEntry": false,
+              "env": {}
+            }
           }
         ]
       }
