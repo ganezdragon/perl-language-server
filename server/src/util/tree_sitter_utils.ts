@@ -1,5 +1,5 @@
 import { Range } from "vscode-languageserver/node";
-import { SyntaxNode } from "web-tree-sitter";
+import { SyntaxNode, Tree } from "web-tree-sitter";
 
 /**
  * For each syntax node, analyze each of its children
@@ -53,6 +53,18 @@ function getRangeForNode(node: SyntaxNode): Range {
     node.endPosition.row,
     node.endPosition.column,
   );
+}
+
+export function getNodeFromRange(tree: Tree, startRow: number, startColumn: number, endRow: number, endColumn: number): SyntaxNode | null {
+  return tree.rootNode.descendantForPosition({ row: startRow, column: startColumn }, { row: endRow, column: endColumn }); 
+}
+
+export function getFunctionNameRangeFromDeclarationRange(tree: Tree, startRow: number, startColumn: number, endRow: number, endColumn: number): Range {
+  const node: SyntaxNode | null = getNodeFromRange(tree, startRow, startColumn, endRow, endColumn);
+  if (!node) {
+    return Range.create(0, 0, 0, 0);
+  }
+  return getRangeForNode(node.childForFieldName('name') || node.children[0].childForFieldName('function_name') || node);
 }
 
 export function getContinuousRangeForNodes(nodes: SyntaxNode[]): Range[] {

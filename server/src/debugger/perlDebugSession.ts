@@ -19,9 +19,10 @@ import { parsePerlStackTrace, PerlStackFrame } from './stackTrace';
 const { Subject } = require('await-notify');
 
 interface PerlLaunchRequestArguments extends DebugProtocol.LaunchRequestArguments {
-    env: { [key: string]: string };
+    env?: { [key: string]: string };
     program: string;
     cwd?: string;
+    args?: string;
 }
 
 export class PerlDebugSession extends DebugSession {
@@ -173,8 +174,13 @@ export class PerlDebugSession extends DebugSession {
             cwd,
             env
         };
+        const commandPlusArgs: string[] = [
+            '-d',
+            program,
+            ...(args.args?.split(' ') || [])
+        ];
 
-        let childProcess: ChildProcess = spawn('perl', ['-d', program], spawnOptions);
+        let childProcess: ChildProcess = spawn('perl', commandPlusArgs, spawnOptions);
 
         this.perlProcess = new PerlProcess(childProcess);
 

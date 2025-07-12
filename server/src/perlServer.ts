@@ -1,5 +1,5 @@
 import { TextDocument } from "vscode-languageserver-textdocument";
-import { ClientCapabilities, CompletionItem, CompletionParams, Connection, Definition, DefinitionParams, DocumentHighlight, DocumentHighlightKind, DocumentHighlightParams, ErrorCodes, Hover, HoverParams, InitializeParams, Location, MarkupContent, MarkupKind, Range, ReferenceParams, RenameParams, ResponseError, SymbolInformation, SymbolKind, TextDocumentPositionParams, TextDocuments, TextEdit, WorkspaceEdit } from "vscode-languageserver/node";
+import { ClientCapabilities, CompletionItem, CompletionParams, Connection, Definition, DefinitionParams, DocumentHighlight, DocumentHighlightKind, DocumentHighlightParams, DocumentSymbolParams, ErrorCodes, Hover, HoverParams, InitializeParams, Location, MarkupContent, MarkupKind, Range, ReferenceParams, RenameParams, ResponseError, SymbolInformation, SymbolKind, TextDocumentPositionParams, TextDocuments, TextEdit, WorkspaceEdit } from "vscode-languageserver/node";
 import * as Parser from 'web-tree-sitter';
 import Analyzer from "./analyzer";
 import { initializeParser } from "./parser";
@@ -100,6 +100,7 @@ export default class PerlServer {
     this.connection.onPrepareRename(this.onPrepareRename.bind(this))
     this.connection.onDocumentHighlight(this.onDocumentHighlight.bind(this));
     this.connection.onHover(this.onHover.bind(this));
+    this.connection.onDocumentSymbol(this.onDocumentSymbol.bind(this));
   }
 
   /**
@@ -319,6 +320,10 @@ export default class PerlServer {
       // skipping the optional range for now.
       // range: Range.create(0, 0, 1, 0),
     };
+  }
+
+  private async onDocumentSymbol(params: DocumentSymbolParams): Promise<SymbolInformation[]> {
+    return this.analyzer.getAllSymbolsForFile(params.textDocument.uri);
   }
 
   /**

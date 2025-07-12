@@ -32,6 +32,19 @@ enum AnalyzeMode {
 type Declarations = Map<string, SymbolInformation[]>;
 type FileDeclarations = Map<URI, Declarations>;
 
+// Memory-efficient function reference type
+export type FunctionReference = {
+  uri: string;
+  functionName: string;
+  packageName: string;
+  position: {
+    startRow: number;
+    startColumn: number;
+    endRow: number;
+    endColumn: number;
+  };
+};
+
 type URIToTree = Map<URI, Tree>;
 
 interface WordWithType {

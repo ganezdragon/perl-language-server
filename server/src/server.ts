@@ -3,11 +3,11 @@
  * Other perl language core server features would be implemented in
  * the perlServer.ts file.
  */
+import * as net from 'net';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { createConnection, DidChangeConfigurationNotification, InitializeParams, InitializeResult, ProposedFeatures, TextDocuments, TextDocumentSyncKind } from 'vscode-languageserver/node';
-import PerlServer from './perlServer';
-import { DebugSession } from '@vscode/debugadapter';
 import { PerlDebugSession } from './debugger/perlDebugSession';
+import PerlServer from './perlServer';
 
 const documents: TextDocuments<TextDocument> = new TextDocuments(TextDocument);
 
@@ -127,11 +127,14 @@ documents.listen(connection);
 //Listen on the connection
 connection.listen();
 
-import * as net from 'net';
-const server = net.createServer(socket => {
-	const session = new PerlDebugSession();
-	session.setRunAsServer(true);
-	session.start(<NodeJS.ReadableStream>socket, socket);
-}).listen(4711);
+// uncomment below while debugging locally
+if (process.env.VSCODE_DEBUGGING) {
+	const server = net.createServer(socket => {
+		const session = new PerlDebugSession();
+		session.setRunAsServer(true);
+		session.start(<NodeJS.ReadableStream>socket, socket);
+	}).listen(4711);
+}
+
 
 

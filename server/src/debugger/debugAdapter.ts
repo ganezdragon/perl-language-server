@@ -1,3 +1,6 @@
 import { PerlDebugSession } from "./perlDebugSession";
 
-// PerlDebugSession.run(PerlDebugSession);
+if (! process.env.VSCODE_DEBUGGING) {
+    PerlDebugSession.run(PerlDebugSession);
+}
+

@@ -25,7 +25,7 @@ export class PerlProcess extends EventEmitter {
 
         this.process = childProcess;
         this.buffer = '';
-        this.readyPrompt = /DB<\d+>/;
+        this.readyPrompt = /DB<\d+> $/;
         this.waitingResolvers = [];
 
         // basically nothing should be coming off of STDOUT
@@ -37,7 +37,7 @@ export class PerlProcess extends EventEmitter {
             this.emit('stdout.output', data.toString());
 
             // if (data.includes('DB<')) {
-            if (/DB<\d+> $/.test(data)) {
+            if (this.readyPrompt.test(data)) {
                 // Perl debugger prompt detected
                 this.emit('stopped', data);
             }
@@ -51,7 +51,7 @@ export class PerlProcess extends EventEmitter {
             this.emit('stderr.output', data.toString());
 
             // if (data.includes('DB<')) {
-            if (/DB<\d+> $/.test(data)) {
+            if (this.readyPrompt.test(data)) {
                 // Perl debugger prompt detected
                 this.emit('stopped', data);
             }
