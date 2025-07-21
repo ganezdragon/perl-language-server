@@ -1,11 +1,13 @@
-import * as Parser from 'web-tree-sitter';
 import * as fs from 'fs/promises';
+import * as path from 'path';
+import { brotliCompressSync, brotliDecompressSync } from 'zlib';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { Connection, Definition, Diagnostic, DiagnosticSeverity, ErrorCodes, InitializeParams, Location, Position, Range, ResponseError, SymbolInformation, SymbolKind, TextEdit, WorkspaceEdit, } from 'vscode-languageserver/node';
-import { getGlobPattern } from './util/perl_utils';
-import { getFilesFromPath } from './util/file';
-import { forEachNode, forEachNodeAnalyze, getContinuousRangeForNodes, getFunctionNameRangeFromDeclarationRange, getListOfRangeForPackageStatements, getPackageNodeForNode, getRangeForNode, getRangeForURI } from './util/tree_sitter_utils';
+import * as Parser from 'web-tree-sitter';
 import { AnalyzeMode, CachingStrategy, ExtensionSettings, FileDeclarations, FunctionReference, ImportDetail, URIToTree } from './types/common.types';
+import { getFilesFromPath } from './util/file';
+import { getGlobPattern } from './util/perl_utils';
+import { forEachNode, forEachNodeAnalyze, getFunctionNameRangeFromDeclarationRange, getPackageNodeForNode, getRangeForNode, getRangeForURI } from './util/tree_sitter_utils';
 
 
 import { fileURLToPath } from 'url';
@@ -21,11 +23,48 @@ class Analyzer {
   private uriToFunctionDeclarations: Map<string, FunctionReference[]> = new Map();;
   private functionReference: Map<string, FunctionReference[]> = new Map();
 
+  private workspaceFolder: string = '';
+
   /**
    * The constructor which injects the dependencies
    */
-  constructor(parser: Parser) {
+  constructor(parser: Parser, workspaceFolder: string) {
     this.parser = parser;
+    this.workspaceFolder = workspaceFolder;
+  }
+
+  private async saveFunctionMapToFile(): Promise<void> {
+    try {
+      const functionMapPath = path.join(fileURLToPath(this.workspaceFolder), '.vscode', 'function_map.zip');
+      
+      // Convert Maps to plain objects for JSON serialization
+      const dataToSave = {
+        uriToFunctionDeclarations: Object.fromEntries(this.uriToFunctionDeclarations),
+        functionReference: Object.fromEntries(this.functionReference)
+      };
+      
+      // Convert to JSON string and compress using Brotli (better compression than gzip)
+      const compressedData = brotliCompressSync(JSON.stringify(dataToSave));
+      
+      // Write the compressed data to file
+      await fs.writeFile(functionMapPath, compressedData);
+      
+    } catch (error) {
+      console.error('Error saving function map:', error);
+    }
+  }
+
+  private async loadFunctionMapFromFile(): Promise<void> {
+    try {
+      const functionMapPath = path.join(fileURLToPath(this.workspaceFolder), '.vscode', 'function_map.zip');
+      const compressedData = await fs.readFile(functionMapPath);
+      const jsonString = brotliDecompressSync(compressedData);
+      const data = JSON.parse(jsonString.toString());
+      this.uriToFunctionDeclarations = new Map(Object.entries(data.uriToFunctionDeclarations));
+      this.functionReference = new Map(Object.entries(data.functionReference));
+    } catch (error) {
+      console.info('Loading function map:', error);
+    }
   }
 
   /**
@@ -127,136 +166,80 @@ class Analyzer {
    * @param rootNode the rootNode of the syntax tree
    */
   private extractAndSetDeclarationsAndReferencesFromFile(document: TextDocument, rootNode: Parser.SyntaxNode): void {
-    const uri: string = document.uri;
+    const uri = document.uri;
+    const functionDefs: FunctionReference[] = [];
+    const tempFunctionRefs = new Map<string, Map<number, FunctionReference>>();
 
-    // Get all the variable and function declarations alone
-    let variableDeclarationNodes: Parser.SyntaxNode[] = [];
-    const allFunctionNodes: Parser.SyntaxNode[] = [
-      ...rootNode.descendantsOfType('function_definition'),
-      ...rootNode.descendantsOfType('call_expression_with_args_with_brackets'),
-      ...rootNode.descendantsOfType('call_expression_with_args_without_brackets'),
-      ...rootNode.descendantsOfType('call_expression_with_variable'),
-      ...rootNode.descendantsOfType('call_expression_with_spaced_args'),
-      ...rootNode.descendantsOfType('call_expression_recursive'),
-      ...rootNode.descendantsOfType('method_invocation'),
-    ];
+    // Pre-allocate position object to reuse
+    const pos = { startRow: 0, startColumn: 0, endRow: 0, endColumn: 0 };
 
-    // TODO: get clear on variable cache strategy
-    if (0) {
-      variableDeclarationNodes = [
-        ...rootNode.descendantsOfType('multi_var_declaration'),
-        ...rootNode.descendantsOfType('single_var_declaration'),
-      ];
-    }
+    // Single pass through all relevant nodes
+    const nodes = rootNode.descendantsOfType([
+      'function_definition',
+      'call_expression_with_args_with_brackets',
+      'call_expression_with_args_without_brackets',
+      'call_expression_with_variable',
+      'call_expression_with_spaced_args',
+      'call_expression_recursive',
+      'method_invocation',
+    ]);
 
-    // Each declaration could have a single or multiple variables
-    // 1) my $a;
-    // 2) my ($a, $b, $c);
-    variableDeclarationNodes.forEach(declarationNode => {
-      // a.children[0].childForFieldName('name')
-      let variableNodes: Parser.SyntaxNode[] = [];
+    for (const node of nodes) {
+      // Update position object
+      pos.startRow = node.startPosition.row;
+      pos.startColumn = node.startPosition.column;
+      pos.endRow = node.endPosition.row;
+      pos.endColumn = node.endPosition.column;
 
-      forEachNode(declarationNode, (node) => {
-        const variable: Parser.SyntaxNode | null = node.childForFieldName('name');
+      // Function definition
+      if (node.type === 'function_definition') {
+        const functionNameNode = node.childForFieldName('name');
+        if (!functionNameNode) continue;
 
-        if (variable) {
-          variableNodes.push(variable);
-        }
-
-        return true;
-      });
-
-      variableNodes.forEach(variableNode => {
-        const variableName: string = variableNode.text;
-
-        let namedDeclarations = this.uriToVariableDeclarations.get(uri)?.get(variableName) || [];
-
-        namedDeclarations.push(
-          SymbolInformation.create(
-            variableName,
-            SymbolKind.Variable,
-            getRangeForNode(variableNode),
-            uri,
-            variableNode.parent?.text
-          ),
-        );
-
-        const existingVariables = this.uriToVariableDeclarations.get(uri);
-        existingVariables?.set(variableName, namedDeclarations);
-        if (existingVariables) {
-          this.uriToVariableDeclarations.set(uri, existingVariables);
-        }
-      });
-    });
-
-    let functionDefs: FunctionReference[] = [];
-
-    allFunctionNodes.forEach(functionNode => {
-      // function declarations
-      if (functionNode.type === 'function_definition') {
-        const functionNameNode: Parser.SyntaxNode | null = functionNode.childForFieldName('name');
-        if (!functionNameNode) {
-          return;
-        }
-        const functionName: string = functionNameNode.text;
-        const packageName: string = getPackageNodeForNode(functionNode)?.descendantsOfType("package_name")[0]?.text || '';
-        const functionDef: FunctionReference = {
+        functionDefs.push({
           uri,
-          functionName,
-          packageName,
-          position: {
-            startRow: functionNode.startPosition.row,
-            startColumn: functionNode.startPosition.column,
-            endRow: functionNode.endPosition.row,
-            endColumn: functionNode.endPosition.column,
-          },
-        };
-        functionDefs.push(functionDef);
+          functionName: functionNameNode.text,
+          packageName: getPackageNodeForNode(node)?.descendantsOfType("package_name")[0]?.text || '',
+          position: { ...pos }
+        });
       }
-      // function references
-      else if (
-        functionNode.type === 'call_expression_with_args_with_brackets' ||
-        functionNode.type === 'call_expression_with_args_without_brackets' ||
-        functionNode.type === 'call_expression_with_variable' ||
-        functionNode.type === 'call_expression_with_spaced_args' ||
-        functionNode.type === 'call_expression_recursive' ||
-        functionNode.type === 'method_invocation'
-      ) {
-        const functionNameNode: Parser.SyntaxNode | null = functionNode.childForFieldName('function_name') || functionNode.children[0]?.childForFieldName('function_name');
-        if (!functionNameNode) return true;
-        const functionName: string = functionNameNode.text;
-        const packageName: string = functionNode.descendantsOfType("package_name")[0]?.text || '';
+      // Function reference
+      else {
+        const functionNameNode = node.childForFieldName('function_name') ||
+          node.children[0]?.childForFieldName('function_name');
+        if (!functionNameNode) continue;
+
+        const functionName = functionNameNode.text;
         const functionRef: FunctionReference = {
           uri,
           functionName,
-          packageName,
-          position: {
-            startRow: functionNode.startPosition.row,
-            startColumn: functionNode.startPosition.column,
-            endRow: functionNode.endPosition.row,
-            endColumn: functionNode.endPosition.column,
-          }
+          packageName: node.descendantsOfType("package_name")[0]?.text || '',
+          position: { ...pos }
         };
-        const existingRefs = this.functionReference.get(functionName) || [];
-        // Ensure only unique position values for each functionName
-        const index = existingRefs.findIndex(ref =>
-          ref.position.startRow === functionRef.position.startRow &&
-          ref.position.startColumn === functionRef.position.startColumn &&
-          ref.position.endRow === functionRef.position.endRow &&
-          ref.position.endColumn === functionRef.position.endColumn
-        );
 
-        if (index !== -1) {
-          // Override the existing reference at this position
-          existingRefs[index] = functionRef;
-          this.functionReference.set(functionName, existingRefs);
-        } else {
-          // Append as unique
-          this.functionReference.set(functionName, [...existingRefs, functionRef]);
+        // Get or create the function's reference map
+        let refsMap = tempFunctionRefs.get(functionName);
+        if (!refsMap) {
+          refsMap = new Map();
+          tempFunctionRefs.set(functionName, refsMap);
         }
-      }
-    });
 
+        // Create a unique key using bit shifting for better performance
+        const positionKey = (pos.startRow << 24) | (pos.startColumn << 16) | (pos.endRow << 8) | pos.endColumn;
+        refsMap.set(positionKey, functionRef);
+      }
+    }
+
+    // Batch update the main functionReference map
+    const functionReference = this.functionReference;
+    for (const [functionName, refsMap] of tempFunctionRefs) {
+      const existingRefs = functionReference.get(functionName) || [];
+      if (refsMap.size > 0) {
+        functionReference.set(functionName, existingRefs.concat(Array.from(refsMap.values())));
+      }
+    }
+
+    // Update function declarations
     this.uriToFunctionDeclarations.set(uri, functionDefs);
   }
 
@@ -274,6 +257,9 @@ class Analyzer {
     params: InitializeParams,
     settings: ExtensionSettings,
   ): Promise<void> {
+
+    // first load cached map if available
+    this.loadFunctionMapFromFile();
 
     const workspaceFolders: InitializeParams['workspaceFolders'] = params.workspaceFolders;
     if (workspaceFolders) {
@@ -361,7 +347,7 @@ class Analyzer {
           finally {
             fileCounter = fileCounter + 1;
 
-            connection.console.info(`Analyzed file ${uri} , prob - ${problemsCounter}, fileC - ${fileCounter}, goal - ${totalFiles}, mem - ${process.memoryUsage().heapUsed / 1024 / 1024} MB`);
+            connection.console.info(`Analyzed file ${uri} , prob - ${problemsCounter}, fileC - ${fileCounter}, goal - ${totalFiles}, mem - ${process.memoryUsage().heapUsed / 1024 / 1024} MB , time passed - ${getTimePassed()}`);
 
             let percentage: number = Math.round((fileCounter / totalFiles) * 100);
             progress.report(percentage, `in progress - ${percentage}%`);
@@ -373,6 +359,8 @@ class Analyzer {
           }
         })
       );
+
+      this.saveFunctionMapToFile();
     }
   }
 

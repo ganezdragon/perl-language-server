@@ -57,7 +57,7 @@ export default class PerlServer {
     const settings = await connection.workspace.getConfiguration({
       section: 'perl',
     });
-    const analyzer: Analyzer = new Analyzer(parser);
+    const analyzer: Analyzer = new Analyzer(parser, params.workspaceFolders?.[0].uri || '');
     
     analyzer.analyzeFromWorkspace(connection, params, settings); // doing this async
 
