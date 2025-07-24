@@ -2,7 +2,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { brotliCompressSync, brotliDecompressSync } from 'zlib';
 import { TextDocument } from 'vscode-languageserver-textdocument';
-import { Connection, Definition, Diagnostic, DiagnosticSeverity, ErrorCodes, InitializeParams, Location, Position, Range, ResponseError, SymbolInformation, SymbolKind, TextEdit, WorkspaceEdit, } from 'vscode-languageserver/node';
+import { Connection, Definition, Diagnostic, DiagnosticSeverity, DocumentSymbol, ErrorCodes, InitializeParams, Location, Position, Range, ResponseError, SymbolInformation, SymbolKind, TextEdit, WorkspaceEdit, WorkspaceSymbol, } from 'vscode-languageserver/node';
 import * as Parser from 'web-tree-sitter';
 import { AnalyzeMode, CachingStrategy, ExtensionSettings, FileDeclarations, FunctionReference, ImportDetail, URIToTree } from './types/common.types';
 import { getFilesFromPath } from './util/file';
@@ -264,7 +264,7 @@ class Analyzer {
     const workspaceFolders: InitializeParams['workspaceFolders'] = params.workspaceFolders;
     if (workspaceFolders) {
       const progress = await connection.window.createWorkDoneProgress();
-      progress.begin('Indexing perl files', 0, 'Starting up...', undefined);
+      progress.begin('(Please wait)Indexing perl files', 0, 'Starting up...', undefined);
 
       const globPattern = getGlobPattern();
 
@@ -347,7 +347,7 @@ class Analyzer {
           finally {
             fileCounter = fileCounter + 1;
 
-            connection.console.info(`Analyzed file ${uri} , prob - ${problemsCounter}, fileC - ${fileCounter}, goal - ${totalFiles}, mem - ${process.memoryUsage().heapUsed / 1024 / 1024} MB , time passed - ${getTimePassed()}`);
+            connection.console.debug(`Analyzed file ${uri} , prob - ${problemsCounter}, fileC - ${fileCounter}, goal - ${totalFiles}, mem - ${process.memoryUsage().heapUsed / 1024 / 1024} MB , time passed - ${getTimePassed()}`);
 
             let percentage: number = Math.round((fileCounter / totalFiles) * 100);
             progress.report(percentage, `in progress - ${percentage}%`);
@@ -485,7 +485,8 @@ class Analyzer {
           locations.push(Location.create(fileName, getRangeForNode(variable)));
         }
       });
-    } else {
+    }
+    else if (nodeAtPoint.parent?.type.match(/call_expression/) || nodeAtPoint.parent?.type.match(/method_invocation/)) {
       // Function: get all FunctionReference for this function name
       const refs = this.functionReference.get(identifierName) || [];
       refs.forEach(ref => {
@@ -518,7 +519,7 @@ class Analyzer {
       return this.renameVariable(fileName, nodeAtPoint, newName);
     }
 
-    else if (nodeAtPoint.parent?.type.match(/call_expression/) || nodeAtPoint.parent?.type.match(/function_definition/)) {
+    else if (nodeAtPoint.parent?.type.match(/call_expression/) || nodeAtPoint.parent?.type.match(/method_invocation/) || nodeAtPoint.parent?.type.match(/function_definition/)) {
       return this.renameFunction(fileName, nodeAtPoint, newName);
     }
 
@@ -603,7 +604,7 @@ class Analyzer {
 
       // get the package completions
       // we could get the first element, since packageName is unique per uri
-      if (onlyValues?.packageName?.includes(word)) {
+      if (onlyValues?.packageName?.toLowerCase().includes(word.toLowerCase())) {
         symbolsMatchingWord.push(
           SymbolInformation.create(
             onlyValues.packageName,
@@ -616,7 +617,7 @@ class Analyzer {
       }
 
       functionDeclarations.forEach(declaration => {
-        if (declaration.functionName.includes(word)) {
+        if (declaration.functionName.toLowerCase().includes(word.toLowerCase())) {
           // if the function is current URI, then put it in priority list
           if (currentURI === thisUri) {
             prioritySymbolsMatchingWord.push(
@@ -926,10 +927,53 @@ class Analyzer {
     return null;
   }
 
-  public async getAllSymbolsForFile(fileName: string) {
-    const currentTree: Parser.Tree | undefined = await this.getTreeFromURI(fileName);
+  public async getAllSymbolsForFile(fileName: string): Promise<DocumentSymbol[]> {
+    const symbols: DocumentSymbol[] = [];
 
-    return [];
+    this.uriToFunctionDeclarations.get(fileName)?.forEach((functionDeclarations: FunctionReference) => {
+      symbols.push(
+        DocumentSymbol.create(
+          functionDeclarations.functionName,
+          '',
+          SymbolKind.Function,
+          Range.create(
+            Position.create(functionDeclarations.position.startRow, functionDeclarations.position.startColumn),
+            Position.create(functionDeclarations.position.endRow, functionDeclarations.position.endColumn),
+          ),
+          Range.create(
+            Position.create(functionDeclarations.position.startRow, functionDeclarations.position.startColumn),
+            Position.create(functionDeclarations.position.endRow, functionDeclarations.position.endColumn),
+          ),
+          [],
+        )
+      );
+    });
+    
+    return symbols;
+  }
+
+  public async getAllSymbolsMatchingWord(word: string): Promise<WorkspaceSymbol[]> {
+    const symbols: WorkspaceSymbol[] = [];
+
+    this.uriToFunctionDeclarations.forEach((functionDeclarations: FunctionReference[], uri: string) => {
+      functionDeclarations.forEach(functionDeclaration => {
+        if (functionDeclaration.functionName.toLowerCase().includes(word.toLowerCase())) {
+          symbols.push(
+            WorkspaceSymbol.create(
+              functionDeclaration.functionName,
+              SymbolKind.Function,
+              uri,
+              Range.create(
+                Position.create(functionDeclaration.position.startRow, functionDeclaration.position.startColumn),
+                Position.create(functionDeclaration.position.endRow, functionDeclaration.position.endColumn),
+              ),
+            )
+          );
+        }
+      });
+    });
+    
+    return symbols;
   }
   /**
    * Cleans up all cached data for a given URI. Call this when a document is closed to prevent memory leaks.

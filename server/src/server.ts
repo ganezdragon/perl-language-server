@@ -48,9 +48,13 @@ connection.onInitialize(async (params: InitializeParams): Promise<InitializeResu
 			},
 
 			// goto definition
-			definitionProvider: true,
+			definitionProvider: {
+				workDoneProgress: true
+			},
 
-			hoverProvider: true,
+			hoverProvider: {
+				workDoneProgress: true
+			},
 
 			// goto implementation
 			implementationProvider: false,
@@ -63,6 +67,14 @@ connection.onInitialize(async (params: InitializeParams): Promise<InitializeResu
 				prepareProvider: true,
 			},
 			documentHighlightProvider: {
+				workDoneProgress: true
+			},
+
+			documentSymbolProvider: {
+				workDoneProgress: true
+			},
+
+			workspaceSymbolProvider: {
 				workDoneProgress: true
 			},
 		}
