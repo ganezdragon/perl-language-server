@@ -1,6 +1,6 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { brotliCompressSync, brotliDecompressSync } from 'zlib';
+import { brotliCompressSync, brotliDecompressSync } from 'node:zlib';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { Connection, Definition, Diagnostic, DiagnosticSeverity, DocumentSymbol, ErrorCodes, InitializeParams, Location, Position, Range, ResponseError, SymbolInformation, SymbolKind, TextEdit, WorkspaceEdit, WorkspaceSymbol, } from 'vscode-languageserver/node';
 import * as Parser from 'web-tree-sitter';
@@ -8,7 +8,6 @@ import { AnalyzeMode, CachingStrategy, ExtensionSettings, FileDeclarations, Func
 import { getFilesFromPath } from './util/file';
 import { getGlobPattern } from './util/perl_utils';
 import { forEachNode, forEachNodeAnalyze, getFunctionNameRangeFromDeclarationRange, getPackageNodeForNode, getRangeForNode, getRangeForURI } from './util/tree_sitter_utils';
-
 
 import { fileURLToPath } from 'url';
 import { extractSubroutineNameFromFullFunctionName } from './util/basic';
@@ -36,34 +35,41 @@ class Analyzer {
   private async saveFunctionMapToFile(): Promise<void> {
     try {
       const functionMapPath = path.join(fileURLToPath(this.workspaceFolder), '.vscode', 'function_map.zip');
+
+      await fs.mkdir(path.dirname(functionMapPath), { recursive: true });
       
       // Convert Maps to plain objects for JSON serialization
       const dataToSave = {
         uriToFunctionDeclarations: Object.fromEntries(this.uriToFunctionDeclarations),
-        functionReference: Object.fromEntries(this.functionReference)
+        // functionReference: Object.fromEntries(this.functionReference),
       };
       
       // Convert to JSON string and compress using Brotli (better compression than gzip)
-      const compressedData = brotliCompressSync(JSON.stringify(dataToSave));
+      const compressedData: Buffer = brotliCompressSync(Buffer.from(JSON.stringify(dataToSave)));
       
       // Write the compressed data to file
       await fs.writeFile(functionMapPath, compressedData);
+
+      console.log('Function map saved successfully');
       
     } catch (error) {
       console.error('Error saving function map:', error);
     }
   }
 
-  private async loadFunctionMapFromFile(): Promise<void> {
+  private async loadFunctionMapFromFile(): Promise<boolean> {
     try {
       const functionMapPath = path.join(fileURLToPath(this.workspaceFolder), '.vscode', 'function_map.zip');
-      const compressedData = await fs.readFile(functionMapPath);
-      const jsonString = brotliDecompressSync(compressedData);
-      const data = JSON.parse(jsonString.toString());
+      const compressedData: Buffer = await fs.readFile(functionMapPath);
+      const decompressedBuffer: Buffer = brotliDecompressSync(compressedData);
+      const data = JSON.parse(decompressedBuffer.toString('utf8'));
       this.uriToFunctionDeclarations = new Map(Object.entries(data.uriToFunctionDeclarations));
       this.functionReference = new Map(Object.entries(data.functionReference));
+
+      return true;
     } catch (error) {
       console.info('Loading function map:', error);
+      return false;
     }
   }
 
@@ -258,13 +264,24 @@ class Analyzer {
     settings: ExtensionSettings,
   ): Promise<void> {
 
+    // time out for 5 seconds
+    setTimeout(() => {
+      this.loadFunctionMapFromFile();
+      console.log('Timeout reached');
+    }, 5000);
+
     // first load cached map if available
-    this.loadFunctionMapFromFile();
+    const hasLoadedMap = await this.loadFunctionMapFromFile();
 
     const workspaceFolders: InitializeParams['workspaceFolders'] = params.workspaceFolders;
     if (workspaceFolders) {
       const progress = await connection.window.createWorkDoneProgress();
-      progress.begin('(Please wait)Indexing perl files', 0, 'Starting up...', undefined);
+      if (hasLoadedMap) {
+        progress.begin('Re-indexing perl files', 0, 'Starting up...', undefined);
+      }
+      else {
+        progress.begin('(Please wait) Indexing perl files', 0, 'Starting up...', undefined);
+      }
 
       const globPattern = getGlobPattern();
 
@@ -304,9 +321,8 @@ class Analyzer {
       let totalFiles: number = filePaths.length;
       let getProblems: boolean = true;
 
-      await Promise.all(
-        filePaths.map(async (filePath) => {
-          let fileContent: string;
+      for (const filePath of filePaths) {
+        let fileContent: string;
           try {
             fileContent = await fs.readFile(filePath, { encoding: 'utf-8' });
           }
@@ -357,8 +373,7 @@ class Analyzer {
               progress.done();
             }
           }
-        })
-      );
+      }
 
       this.saveFunctionMapToFile();
     }
