@@ -41,11 +41,11 @@ class Analyzer {
       // Convert Maps to plain objects for JSON serialization
       const dataToSave = {
         uriToFunctionDeclarations: Object.fromEntries(this.uriToFunctionDeclarations),
-        // functionReference: Object.fromEntries(this.functionReference),
+        functionReference: Object.fromEntries(this.functionReference),
       };
       
       // Convert to JSON string and compress using Brotli (better compression than gzip)
-      const compressedData: Buffer = brotliCompressSync(Buffer.from(JSON.stringify(dataToSave)));
+      const compressedData: Buffer = brotliCompressSync(JSON.stringify(dataToSave));
       
       // Write the compressed data to file
       await fs.writeFile(functionMapPath, compressedData);
@@ -63,8 +63,9 @@ class Analyzer {
       const compressedData: Buffer = await fs.readFile(functionMapPath);
       const decompressedBuffer: Buffer = brotliDecompressSync(compressedData);
       const data = JSON.parse(decompressedBuffer.toString('utf8'));
-      this.uriToFunctionDeclarations = new Map(Object.entries(data.uriToFunctionDeclarations));
-      this.functionReference = new Map(Object.entries(data.functionReference));
+
+      this.uriToFunctionDeclarations = new Map(Object.entries(data.uriToFunctionDeclarations || {}));
+      this.functionReference = new Map(Object.entries(data.functionReference || {}));
 
       return true;
     } catch (error) {
@@ -265,10 +266,10 @@ class Analyzer {
   ): Promise<void> {
 
     // time out for 5 seconds
-    setTimeout(() => {
-      this.loadFunctionMapFromFile();
-      console.log('Timeout reached');
-    }, 5000);
+    // setTimeout(() => {
+    //   this.loadFunctionMapFromFile();
+    //   console.log('Timeout reached');
+    // }, 5000);
 
     // first load cached map if available
     const hasLoadedMap = await this.loadFunctionMapFromFile();
