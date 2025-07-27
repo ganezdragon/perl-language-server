@@ -71,10 +71,10 @@ export function getListLengthFromValue(arrayStr: string): number {
 // ]
 export function getValuesFromArrayContext(arrayContextStr: string): string[] {
     // Step 1: Split into lines
-    const lines = arrayContextStr.split('\n');
+    const lines: string[] = arrayContextStr.split('\n');
 
     // Step 2: Parse top-level indices
-    const entries = new Map();
+    let result: string[] = [];
     let currentIndex: string | null = null;
     let currentValueLines: string[] = [];
 
@@ -93,7 +93,7 @@ export function getValuesFromArrayContext(arrayContextStr: string): string[] {
         if (indexMatch) {
             // Save previous entry if exists
             if (currentIndex !== null) {
-                entries.set(parseInt(currentIndex, 10), currentValueLines.join('\n').trim());
+                result.push(currentValueLines.join('\n'));
             }
             // Start new entry
             currentIndex = indexMatch[1];
@@ -101,18 +101,14 @@ export function getValuesFromArrayContext(arrayContextStr: string): string[] {
         }
         else if (currentIndex !== null) {
             // Line is part of current value block (likely nested or indented)
-            currentValueLines.push(line.trim());
+            currentValueLines.push(line);
         }
     }
 
     // Don't forget last entry
     if (currentIndex !== null) {
-        entries.set(parseInt(currentIndex, 10), currentValueLines.join('\n').trim());
+        result.push(currentValueLines.join('\n'));
     }
-
-    // Step 3: Convert map to ordered array
-    const maxIndex = Math.max(...entries.keys());
-    const result: string[] = Array.from({ length: maxIndex + 1 }, (_, i) => entries.get(i) ?? null);
 
     return result;
 }
@@ -145,20 +141,20 @@ export function getKeyValuesFromHashContext(hashContextStr: string): Record<stri
         if (match) {
             // Save previous key-value block
             if (currentKey !== null) {
-                entries.set(currentKey, currentValueLines.join('\n').trim());
+                entries.set(currentKey, currentValueLines.join('\n'));
             }
 
             // Start new key
             currentKey = match[1];
             currentValueLines = [match[2].trim()];
         } else if (currentKey !== null) {
-            currentValueLines.push(line.trim());
+            currentValueLines.push(line);
         }
     }
 
     // Don't forget last key-value block
     if (currentKey !== null) {
-        entries.set(currentKey, currentValueLines.join('\n').trim());
+        entries.set(currentKey, currentValueLines.join('\n'));
     }
 
     // Convert to plain object
