@@ -16,6 +16,7 @@ import { ChildProcess, spawn, SpawnOptions } from 'child_process';
 import { PerlProcess } from './perlProcess';
 import { extractVariables, getActualVariableValueFromListContext, getKeyValuesFromHashContext, getListLengthFromValue, getValuesFromArrayContext, NestedVariable, NestedVariableType } from './variable';
 import { parsePerlStackTrace, PerlStackFrame } from './stackTrace';
+import { getTtyFromProcessId, writeToTty } from './debugUtil';
 const { Subject } = require('await-notify');
 
 interface PerlLaunchRequestArguments extends DebugProtocol.LaunchRequestArguments {
@@ -173,17 +174,38 @@ export class PerlDebugSession extends DebugSession {
             return;
         }
 
+        const runInTerminalPromise = new Promise<DebugProtocol.RunInTerminalResponse>((resolve) => {
+            this.runInTerminalRequest({
+                kind: 'integrated',
+                title: 'Perl Debug',
+                cwd: '',
+                args: [],
+            }, 2000, (response: DebugProtocol.RunInTerminalResponse) => {
+                resolve(response);
+            });
+        });
+
+        const terminalResponse = await runInTerminalPromise;
+        const shellProcessId: number = terminalResponse.body?.shellProcessId || 0;
+        const ttyPath: string = getTtyFromProcessId(shellProcessId) || '';
+
         const spawnOptions: SpawnOptions = {
             detached: true,
-            // stdio: ['pipe', 'pipe', 'pipe'],
+            shell: true, // Enable shell to handle pipe operations
+            stdio: ['pipe', 'pipe', 'pipe'],
             cwd,
             env
         };
         const commandPlusArgs: string[] = [
             '-d',
             program,
-            ...(args.args?.split(' ') || [])
+            ...(args.args?.split(' ') || []),
+            ttyPath ? `| tee ${ttyPath}` : '',
         ];
+
+        if (ttyPath) {
+            writeToTty(ttyPath, `perl ${program} ${args.args}\r\n`);
+        }
 
         let childProcess: ChildProcess = spawn('perl', commandPlusArgs, spawnOptions);
 
