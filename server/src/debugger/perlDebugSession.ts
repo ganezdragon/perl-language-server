@@ -21,6 +21,7 @@ const { Subject } = require('await-notify');
 interface PerlLaunchRequestArguments extends DebugProtocol.LaunchRequestArguments {
     env?: { [key: string]: string };
     program: string;
+    stopOnEntry: boolean;
     cwd?: string;
     args?: string;
 }
@@ -30,6 +31,7 @@ export class PerlDebugSession extends DebugSession {
     private breakpoints = new Map<string, DebugProtocol.Breakpoint[]>();
 
     private shouldStop = true; // Flag to prevent multiple StoppedEvents
+    private hasPassedStopOnEntry = false;
 
 	private THREADID: number = 1;
 
@@ -157,6 +159,9 @@ export class PerlDebugSession extends DebugSession {
         const cwd = args.cwd || process.cwd();
         const env: PerlLaunchRequestArguments['env'] = args.env;
 
+        // set stopOnEntry
+        this.hasPassedStopOnEntry = !!args.stopOnEntry;
+
         // wait 1 second until configuration has finished (and configurationDoneRequest has been called)
 		await this._configurationDone.wait(1000);
 
@@ -185,6 +190,7 @@ export class PerlDebugSession extends DebugSession {
         this.perlProcess = new PerlProcess(childProcess);
 
         // set things on the process
+        // so that all the STDOUT is sent out as when available.
         this.perlProcess.autoFlushStdOut();
 
         // register for all events
@@ -434,21 +440,26 @@ export class PerlDebugSession extends DebugSession {
     ): Promise<void> {
         const path: string = args.source.path as string;
         const clientLines: number[] = args.breakpoints?.map(breakpoint => breakpoint.line) || [];
+        let breakpoints: DebugProtocol.Breakpoint[] = [];
 
         // first, delete all existing breakpoints in current file
         // and then set it later
         const linesToDelete: number[] = this.breakpoints.get(path)?.map(bp => bp.line || 0) || [];
         await this.perlProcess?.deleteBreakpoints(linesToDelete);
 
-        const breakpoints: DebugProtocol.Breakpoint[] = clientLines.map(line => {
-            return new Breakpoint(true, line, 1, new Source(path, path));
-        });
+        for (const line of clientLines) {
+            const result: string | undefined = await this.perlProcess?.setBreakpoint(path, line);
+            if (result?.match(/not breakable/)) {
+                let failedBreakpoint: DebugProtocol.Breakpoint = new Breakpoint(false, line, 1, new Source(path, path));
+                failedBreakpoint.message = 'Perl cannot set breakpoint here';
+                breakpoints.push(failedBreakpoint);
+            }
+            else {
+                breakpoints.push(new Breakpoint(true, line, 1, new Source(path, path)));
+            }
+        }
 
         this.breakpoints.set(path, breakpoints);
-
-        await this.perlProcess?.setBreakpoints(
-            clientLines.map(line => ({ file: path, line }))
-        );
 
         response.body = {
             breakpoints: breakpoints
@@ -508,7 +519,18 @@ export class PerlDebugSession extends DebugSession {
                 }),
                 totalFrames: result.length
             };
+
+            // HACK: for stopOnEntry, if the first line is not in breakpoints, continue
+            if (!this.hasPassedStopOnEntry && this.lineNotInBreakpoints(result[0].line, result[0].fullPath)) {
+                this.hasPassedStopOnEntry = true;
+                await this.perlProcess?.continue();
+            }
+
             this.sendResponse(response);
         }
+    }
+
+    private lineNotInBreakpoints(line: number, filePath: string): boolean {
+        return this.breakpoints.get(filePath)?.every(bp => bp.line != line) || false;
     }
 }

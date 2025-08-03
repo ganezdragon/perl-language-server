@@ -34,7 +34,8 @@ export class PerlProcess extends EventEmitter {
         this.process.stdout?.on('data', (data) => {
             this.buffer += data;
             this._processBuffer();
-            this.emit('stdout.output', data.toString());
+            // NOTE: only for debugging
+            // this.emit('stdout.output', data.toString());
 
             // if (data.includes('DB<')) {
             if (this.readyPrompt.test(data)) {
@@ -48,7 +49,8 @@ export class PerlProcess extends EventEmitter {
         this.process.stderr?.on('data', (data) => {
             this.buffer += data;
             this._processBuffer();
-            this.emit('stderr.output', data.toString());
+            // NOTE: only for debugging
+            // this.emit('stderr.output', data.toString());
 
             // if (data.includes('DB<')) {
             if (this.readyPrompt.test(data)) {
@@ -115,12 +117,10 @@ export class PerlProcess extends EventEmitter {
         });
     }
 
-    public async setBreakpoints(breakpoints: Breakpoint[]) {
+    public async setBreakpoint(file: string, line: number, condition?: string): Promise<string> {
         return this._sync(async () => {
-            for (const bp of breakpoints) {
-                const cmd = `b ${bp.file}:${bp.line} ${bp.condition}\n`;
-                await this._sendCommand(cmd);
-            }
+            const cmd = `b ${file}:${line} ${condition}\n`;
+            return await this._sendCommand(cmd);
         });
     }
 

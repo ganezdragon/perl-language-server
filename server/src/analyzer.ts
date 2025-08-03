@@ -502,7 +502,11 @@ class Analyzer {
         }
       });
     }
-    else if (nodeAtPoint.parent?.type.match(/call_expression/) || nodeAtPoint.parent?.type.match(/method_invocation/)) {
+    else if (
+      nodeAtPoint.parent?.type.match(/call_expression/)
+      || nodeAtPoint.parent?.type.match(/method_invocation/)
+      || nodeAtPoint.parent?.type.match(/function_definition/)
+    ) {
       // Function: get all FunctionReference for this function name
       const refs = this.functionReference.get(identifierName) || [];
       refs.forEach(ref => {
