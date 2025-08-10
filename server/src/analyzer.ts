@@ -34,7 +34,7 @@ class Analyzer {
 
   private async saveFunctionMapToFile(): Promise<void> {
     try {
-      const functionMapPath = path.join(fileURLToPath(this.workspaceFolder), '.vscode', 'function_map.zip');
+      const functionMapPath = path.join(fileURLToPath(this.workspaceFolder), '.vscode', 'function_map.json');
 
       await fs.mkdir(path.dirname(functionMapPath), { recursive: true });
       
@@ -45,10 +45,11 @@ class Analyzer {
       };
       
       // Convert to JSON string and compress using Brotli (better compression than gzip)
-      const compressedData: Buffer = brotliCompressSync(JSON.stringify(dataToSave));
+      // const compressedData: Buffer = brotliCompressSync(JSON.stringify(dataToSave));
       
       // Write the compressed data to file
-      await fs.writeFile(functionMapPath, compressedData);
+      // await fs.writeFile(functionMapPath, compressedData);
+      await fs.writeFile(functionMapPath, JSON.stringify(dataToSave), 'utf-8');
 
       console.log('Function map saved successfully');
       
@@ -59,10 +60,13 @@ class Analyzer {
 
   private async loadFunctionMapFromFile(): Promise<boolean> {
     try {
-      const functionMapPath = path.join(fileURLToPath(this.workspaceFolder), '.vscode', 'function_map.zip');
-      const compressedData: Buffer = await fs.readFile(functionMapPath);
-      const decompressedBuffer: Buffer = brotliDecompressSync(compressedData);
-      const data = JSON.parse(decompressedBuffer.toString('utf8'));
+      // const functionMapPath = path.join(fileURLToPath(this.workspaceFolder), '.vscode', 'function_map.zip');
+      // const compressedData: Buffer = await fs.readFile(functionMapPath);
+      // const decompressedBuffer: Buffer = brotliDecompressSync(compressedData);
+      // const data = JSON.parse(decompressedBuffer.toString('utf8'));
+
+      const functionMapPath = path.join(fileURLToPath(this.workspaceFolder), '.vscode', 'function_map.json');
+      const data = JSON.parse(await fs.readFile(functionMapPath, 'utf-8'));
 
       this.uriToFunctionDeclarations = new Map(Object.entries(data.uriToFunctionDeclarations || {}));
       this.uriToFunctionReferences = new Map(Object.entries(data.functionReference || {}));
