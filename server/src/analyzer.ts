@@ -4,7 +4,7 @@ import { brotliCompressSync, brotliDecompressSync } from 'node:zlib';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { Connection, Definition, Diagnostic, DiagnosticSeverity, DocumentSymbol, ErrorCodes, InitializeParams, Location, Position, Range, ResponseError, SymbolInformation, SymbolKind, TextEdit, WorkspaceEdit, WorkspaceSymbol, } from 'vscode-languageserver/node';
 import * as Parser from 'web-tree-sitter';
-import { AnalyzeMode, CachingStrategy, ExtensionSettings, FileDeclarations, FunctionReference, ImportDetail, URIToTree } from './types/common.types';
+import { AnalyzeMode, CachingStrategy, ExtensionSettings, FileDeclarations, FunctionReference, ImportDetail, MAX_NUMBER_OF_FILES_TO_BEGIN_CACHING, URIToTree } from './types/common.types';
 import { getFilesFromPath } from './util/file';
 import { getGlobPattern } from './util/perl_utils';
 import { forEachNode, forEachNodeAnalyze, getFunctionNameRangeFromDeclarationRange, getIdentifierPositionWithinPosition, getPackageNodeForNode, getRangeForNode, getRangeForURI } from './util/tree_sitter_utils';
@@ -34,6 +34,10 @@ class Analyzer {
 
   private async saveFunctionMapToFile(): Promise<void> {
     try {
+      // if there are more than 10000 files, lets save to disk
+      if (! (this.uriToFunctionDeclarations.size > MAX_NUMBER_OF_FILES_TO_BEGIN_CACHING || this.uriToFunctionReferences.size > MAX_NUMBER_OF_FILES_TO_BEGIN_CACHING)) {
+        return;
+      }
       const functionMapPath = path.join(fileURLToPath(this.workspaceFolder), '.vscode', 'function_map.json');
 
       await fs.mkdir(path.dirname(functionMapPath), { recursive: true });
@@ -51,7 +55,7 @@ class Analyzer {
       // await fs.writeFile(functionMapPath, compressedData);
       await fs.writeFile(functionMapPath, JSON.stringify(dataToSave), 'utf-8');
 
-      console.log('Function map saved successfully');
+      console.log('Function map saved successfully to .vscode/function_map.json file');
       
     } catch (error) {
       console.error('Error saving function map:', error);
@@ -257,12 +261,6 @@ class Analyzer {
     params: InitializeParams,
     settings: ExtensionSettings,
   ): Promise<void> {
-
-    // time out for 5 seconds
-    // setTimeout(() => {
-    //   this.loadFunctionMapFromFile();
-    //   console.log('Timeout reached');
-    // }, 5000);
 
     // first load cached map if available
     const hasLoadedMap = await this.loadFunctionMapFromFile();

@@ -1,6 +1,8 @@
 import { Range, SymbolInformation, TextEdit, URI } from "vscode-languageserver/node"
 import { Tree } from "web-tree-sitter";
 
+export const MAX_NUMBER_OF_FILES_TO_BEGIN_CACHING = 10000;
+
 interface ExtensionSettings {
   showAllErrors: boolean;
 	maxNumberOfProblems: number;
