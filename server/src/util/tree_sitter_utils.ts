@@ -1,5 +1,6 @@
 import { Range } from "vscode-languageserver/node";
 import { SyntaxNode, Tree } from "web-tree-sitter";
+import { FunctionReferencePosition } from "../types/common.types";
 
 /**
  * For each syntax node, analyze each of its children
@@ -79,6 +80,16 @@ export function getRangeForURI(uri: string): Range {
   return Range.create(0, 0, 0, 0);
 }
 
+export function getIdentifierPositionWithinPosition(node: SyntaxNode): FunctionReferencePosition {
+  const identifierNode: SyntaxNode | null = node.childForFieldName('name') || node.children[0].childForFieldName('identifier');
+  return {
+    startRow: identifierNode?.startPosition.row || node.startPosition.row,
+    startColumn: identifierNode?.startPosition.column || node.startPosition.column,
+    endRow: identifierNode?.endPosition.row || node.endPosition.row,
+    endColumn: identifierNode?.endPosition.column || node.endPosition.column
+  }
+}
+
 /**
  * Given a node, recursively finds the first package that its under.
  * Could return null if not found (probably a pl file?)
@@ -100,8 +111,6 @@ export function getListOfRangeForPackageStatements(allPackageNodes: SyntaxNode[]
 }
 
 export {
-  forEachNodeAnalyze,
-  forEachNode,
-  getRangeForNode,
-  getPackageNodeForNode
-}
+  forEachNode, forEachNodeAnalyze, getPackageNodeForNode, getRangeForNode
+};
+

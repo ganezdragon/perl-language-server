@@ -260,7 +260,7 @@ export default class PerlServer {
       return [];
     }
 
-    return this.analyzer.findAllReferences(params.textDocument.uri, nodeAtPoint);
+    return await this.analyzer.findAllReferences(params.textDocument.uri, nodeAtPoint);
   }
 
   private async onRenameRequest(params: RenameParams): Promise<WorkspaceEdit> {
@@ -296,7 +296,7 @@ export default class PerlServer {
       return [];
     }
 
-    const allLocations: Location[] = this.analyzer.findAllReferences(params.textDocument.uri, nodeAtPoint);
+    const allLocations: Location[] = await this.analyzer.findAllReferences(params.textDocument.uri, nodeAtPoint, true);
 
     return allLocations.map(eachLocation => DocumentHighlight.create(eachLocation.range, DocumentHighlightKind.Read));
   }

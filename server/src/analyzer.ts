@@ -7,10 +7,10 @@ import * as Parser from 'web-tree-sitter';
 import { AnalyzeMode, CachingStrategy, ExtensionSettings, FileDeclarations, FunctionReference, ImportDetail, URIToTree } from './types/common.types';
 import { getFilesFromPath } from './util/file';
 import { getGlobPattern } from './util/perl_utils';
-import { forEachNode, forEachNodeAnalyze, getFunctionNameRangeFromDeclarationRange, getPackageNodeForNode, getRangeForNode, getRangeForURI } from './util/tree_sitter_utils';
+import { forEachNode, forEachNodeAnalyze, getFunctionNameRangeFromDeclarationRange, getIdentifierPositionWithinPosition, getPackageNodeForNode, getRangeForNode, getRangeForURI } from './util/tree_sitter_utils';
 
 import { fileURLToPath } from 'url';
-import { extractSubroutineNameFromFullFunctionName } from './util/basic';
+import { createFunctionRefKey, extractSubroutineNameFromFullFunctionName, parseFunctionRefKey } from './util/basic';
 
 class Analyzer {
   // dependencies
@@ -20,7 +20,7 @@ class Analyzer {
   private uriToTree: URIToTree = new Map();
   private uriToVariableDeclarations: FileDeclarations = new Map();
   private uriToFunctionDeclarations: Map<string, FunctionReference[]> = new Map();;
-  private functionReference: Map<string, FunctionReference[]> = new Map();
+  private uriToFunctionReferences: Map<string, Map<string, FunctionReference[]>> = new Map();
 
   private workspaceFolder: string = '';
 
@@ -41,7 +41,7 @@ class Analyzer {
       // Convert Maps to plain objects for JSON serialization
       const dataToSave = {
         uriToFunctionDeclarations: Object.fromEntries(this.uriToFunctionDeclarations),
-        functionReference: Object.fromEntries(this.functionReference),
+        functionReference: Object.fromEntries(this.uriToFunctionReferences),
       };
       
       // Convert to JSON string and compress using Brotli (better compression than gzip)
@@ -65,7 +65,7 @@ class Analyzer {
       const data = JSON.parse(decompressedBuffer.toString('utf8'));
 
       this.uriToFunctionDeclarations = new Map(Object.entries(data.uriToFunctionDeclarations || {}));
-      this.functionReference = new Map(Object.entries(data.functionReference || {}));
+      this.uriToFunctionReferences = new Map(Object.entries(data.functionReference || {}));
 
       return true;
     } catch (error) {
@@ -175,10 +175,10 @@ class Analyzer {
   private extractAndSetDeclarationsAndReferencesFromFile(document: TextDocument, rootNode: Parser.SyntaxNode): void {
     const uri = document.uri;
     const functionDefs: FunctionReference[] = [];
-    const tempFunctionRefs = new Map<string, Map<number, FunctionReference>>();
+    const functionRefs: Map<string, FunctionReference[]> = new Map();
 
-    // Pre-allocate position object to reuse
-    const pos = { startRow: 0, startColumn: 0, endRow: 0, endColumn: 0 };
+    this.uriToFunctionDeclarations.set(uri, []);
+    this.uriToFunctionReferences.set(uri, new Map());
 
     // Single pass through all relevant nodes
     const nodes = rootNode.descendantsOfType([
@@ -192,12 +192,6 @@ class Analyzer {
     ]);
 
     for (const node of nodes) {
-      // Update position object
-      pos.startRow = node.startPosition.row;
-      pos.startColumn = node.startPosition.column;
-      pos.endRow = node.endPosition.row;
-      pos.endColumn = node.endPosition.column;
-
       // Function definition
       if (node.type === 'function_definition') {
         const functionNameNode = node.childForFieldName('name');
@@ -207,7 +201,12 @@ class Analyzer {
           uri,
           functionName: functionNameNode.text,
           packageName: getPackageNodeForNode(node)?.descendantsOfType("package_name")[0]?.text || '',
-          position: { ...pos }
+          position: {
+            startRow: functionNameNode.startPosition.row,
+            startColumn: functionNameNode.startPosition.column,
+            endRow: functionNameNode.endPosition.row,
+            endColumn: functionNameNode.endPosition.column,
+          },
         });
       }
       // Function reference
@@ -221,33 +220,23 @@ class Analyzer {
           uri,
           functionName,
           packageName: node.descendantsOfType("package_name")[0]?.text || '',
-          position: { ...pos }
+          position: {
+            startRow: functionNameNode.startPosition.row,
+            startColumn: functionNameNode.startPosition.column,
+            endRow: functionNameNode.endPosition.row,
+            endColumn: functionNameNode.endPosition.column,
+          },
         };
 
-        // Get or create the function's reference map
-        let refsMap = tempFunctionRefs.get(functionName);
-        if (!refsMap) {
-          refsMap = new Map();
-          tempFunctionRefs.set(functionName, refsMap);
-        }
-
-        // Create a unique key using bit shifting for better performance
-        const positionKey = (pos.startRow << 24) | (pos.startColumn << 16) | (pos.endRow << 8) | pos.endColumn;
-        refsMap.set(positionKey, functionRef);
-      }
-    }
-
-    // Batch update the main functionReference map
-    const functionReference = this.functionReference;
-    for (const [functionName, refsMap] of tempFunctionRefs) {
-      const existingRefs = functionReference.get(functionName) || [];
-      if (refsMap.size > 0) {
-        functionReference.set(functionName, existingRefs.concat(Array.from(refsMap.values())));
+        const existingRefsForSameFn: FunctionReference[] = functionRefs.get(functionName) || [];
+        existingRefsForSameFn.push(functionRef);
+        functionRefs.set(functionName, existingRefsForSameFn);
       }
     }
 
     // Update function declarations
     this.uriToFunctionDeclarations.set(uri, functionDefs);
+    this.uriToFunctionReferences.set(uri, functionRefs);
   }
 
   /**
@@ -486,7 +475,7 @@ class Analyzer {
     return symbols.map(symbol => symbol.location);
   }
 
-  public findAllReferences(fileName: string, nodeAtPoint: Parser.SyntaxNode): Location[] {
+  public async findAllReferences(fileName: string, nodeAtPoint: Parser.SyntaxNode, onlyCurrentFile: boolean = false): Promise<Location[]> {
     const locations: Location[] = [];
     const identifierName: string = nodeAtPoint.text;
 
@@ -507,21 +496,38 @@ class Analyzer {
       || nodeAtPoint.parent?.type.match(/method_invocation/)
       || nodeAtPoint.parent?.type.match(/function_definition/)
     ) {
-      // Function: get all FunctionReference for this function name
-      const refs = this.functionReference.get(identifierName) || [];
-      refs.forEach(ref => {
-        locations.push(Location.create(ref.uri, Range.create(
-          ref.position.startRow,
-          ref.position.startColumn,
-          ref.position.endRow,
-          ref.position.endColumn
-        )));
-      });
+      if (onlyCurrentFile) {
+        this.uriToFunctionReferences.get(fileName)?.forEach((functionRefs: FunctionReference[], functionName: string) => {
+          if (functionName === identifierName) {
+            functionRefs.forEach(ref => {
+              locations.push(Location.create(fileName, Range.create(
+                ref.position.startRow,
+                ref.position.startColumn,
+                ref.position.endRow,
+                ref.position.endColumn
+              )));
+            });
+          }
+        });
+      }
+      else {
+        // Function: get all FunctionReference for this function name
+        this.uriToFunctionReferences.forEach((functionRefMap, uri) => {
+          functionRefMap?.get(identifierName)?.forEach(ref => {
+            locations.push(Location.create(ref.uri, Range.create(
+              ref.position.startRow,
+              ref.position.startColumn,
+              ref.position.endRow,
+              ref.position.endColumn
+            )));
+          });
+        });
+      }
       // add the function declaration as well
-      this.uriToFunctionDeclarations.forEach((functionDeclarations, thisUri) => {
-        functionDeclarations.forEach((declaration: FunctionReference) => {
+      if (onlyCurrentFile) {
+        this.uriToFunctionDeclarations.get(fileName)?.forEach((declaration: FunctionReference) => {
           if (declaration.functionName === identifierName) {
-            locations.push(Location.create(thisUri, Range.create(
+            locations.push(Location.create(fileName, Range.create(
               declaration.position.startRow,
               declaration.position.startColumn,
               declaration.position.endRow,
@@ -529,7 +535,21 @@ class Analyzer {
             )));
           }
         });
-      });
+      }
+      else {
+        this.uriToFunctionDeclarations.forEach((functionDeclarations, thisUri) => {
+          functionDeclarations.forEach((declaration) => {
+            if (declaration.functionName === identifierName) {
+              locations.push(Location.create(thisUri, Range.create(
+                declaration.position.startRow,
+                declaration.position.startColumn,
+                declaration.position.endRow,
+                declaration.position.endColumn
+              )));
+            }
+          });
+        });
+      }
     }
     return locations;
   }
@@ -558,16 +578,17 @@ class Analyzer {
     const functionName: string = nodeAtPoint.text;
 
     // Get all FunctionReferences for this function name
-    const refs = this.functionReference.get(functionName) || [];
-    for (const ref of refs) {
-      let additionalEditsInFile: TextEdit[] = renameChanges[ref.uri] || [];
-      const tree = await this.getTreeFromURI(ref.uri);
-      additionalEditsInFile.push({
-        newText: newName,
-        range: getFunctionNameRangeFromDeclarationRange(tree!, ref.position.startRow, ref.position.startColumn, ref.position.endRow, ref.position.endColumn)
+    this.uriToFunctionReferences.forEach(async (functionRefs, uri) => {
+      functionRefs?.get(functionName)?.forEach(async ref => {
+        let additionalEditsInFile: TextEdit[] = renameChanges[uri] || [];
+        const tree = await this.getTreeFromURI(uri);
+        additionalEditsInFile.push({
+          newText: newName,
+          range: getFunctionNameRangeFromDeclarationRange(tree!, ref.position.startRow, ref.position.startColumn, ref.position.endRow, ref.position.endColumn)
+        });
+        renameChanges[uri] = additionalEditsInFile;
       });
-      renameChanges[ref.uri] = additionalEditsInFile;
-    }
+    });
 
     // get the function declaration as well
     this.uriToFunctionDeclarations.forEach((functionDeclarations, thisUri) => {
@@ -1003,7 +1024,7 @@ class Analyzer {
     this.uriToTree.delete(uri);
     this.uriToVariableDeclarations.delete(uri);
     this.uriToFunctionDeclarations.delete(uri);
-    this.functionReference.delete(uri);
+    this.uriToFunctionReferences.delete(uri);
   }
 }
 

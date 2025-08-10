@@ -37,13 +37,15 @@ export type FunctionReference = {
   uri: string;
   functionName: string;
   packageName: string;
-  position: {
-    startRow: number;
-    startColumn: number;
-    endRow: number;
-    endColumn: number;
-  };
+  position: FunctionReferencePosition;
 };
+
+export type FunctionReferencePosition = {
+  startRow: number;
+  startColumn: number;
+  endRow: number;
+  endColumn: number;
+}
 
 type URIToTree = Map<URI, Tree>;
 
