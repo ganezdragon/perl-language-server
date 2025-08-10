@@ -16,7 +16,10 @@
       "outFiles": [
         "${workspaceFolder}/client/out/**/*.js"
       ],
-      "preLaunchTask": "npm: watch"
+      "preLaunchTask": "npm: watch",
+      "env": {
+        "VSCODE_DEBUGGING": "1"
+      }
     },
     {
       "type": "node",
@@ -24,8 +27,25 @@
       "name": "Attach to language server",
       "port": 6009,
 			"restart": true,
-			"outFiles": ["${workspaceRoot}/server/out/**/*.js"]
-    }
+			"outFiles": ["${workspaceRoot}/server/out/**/*.js"],
+      "env": {
+        "VSCODE_DEBUGGING": "1"
+      }
+    },
+    {
+			"type": "node",
+			"request": "launch",
+			"name": "Run Debug Server",
+      "runtimeExecutable": "${execPath}",
+			// "cwd": "${workspaceFolder}",
+			"program": "src/debugger/perlDebugSession.ts",
+			"args": [ "--server=4711" ],
+			"sourceMaps": true,
+			"outFiles": [ "${workspaceFolder}/out/*.js" ],
+      "env": {
+        "VSCODE_DEBUGGING": "1"
+      }
+		}
   ],
 	"compounds": [
 		{

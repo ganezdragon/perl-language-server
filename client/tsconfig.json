@@ -3,6 +3,7 @@
 		"module": "commonjs",
 		"target": "es2019",
 		"lib": ["ES2019"],
+		"composite": true,
 		"outDir": "out",
 		"rootDir": "src",
 		"sourceMap": true

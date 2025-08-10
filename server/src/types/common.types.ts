@@ -1,6 +1,8 @@
 import { Range, SymbolInformation, TextEdit, URI } from "vscode-languageserver/node"
 import { Tree } from "web-tree-sitter";
 
+export const MAX_NUMBER_OF_FILES_TO_BEGIN_CACHING = 10000;
+
 interface ExtensionSettings {
   showAllErrors: boolean;
 	maxNumberOfProblems: number;
@@ -31,6 +33,21 @@ enum AnalyzeMode {
 
 type Declarations = Map<string, SymbolInformation[]>;
 type FileDeclarations = Map<URI, Declarations>;
+
+// Memory-efficient function reference type
+export type FunctionReference = {
+  uri: string;
+  functionName: string;
+  packageName: string;
+  position: FunctionReferencePosition;
+};
+
+export type FunctionReferencePosition = {
+  startRow: number;
+  startColumn: number;
+  endRow: number;
+  endColumn: number;
+}
 
 type URIToTree = Map<URI, Tree>;
 

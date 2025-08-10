@@ -1,5 +1,6 @@
 import { Range } from "vscode-languageserver/node";
-import { SyntaxNode } from "web-tree-sitter";
+import { SyntaxNode, Tree } from "web-tree-sitter";
+import { FunctionReferencePosition } from "../types/common.types";
 
 /**
  * For each syntax node, analyze each of its children
@@ -55,6 +56,18 @@ function getRangeForNode(node: SyntaxNode): Range {
   );
 }
 
+export function getNodeFromRange(tree: Tree, startRow: number, startColumn: number, endRow: number, endColumn: number): SyntaxNode | null {
+  return tree.rootNode.descendantForPosition({ row: startRow, column: startColumn }, { row: endRow, column: endColumn }); 
+}
+
+export function getFunctionNameRangeFromDeclarationRange(tree: Tree, startRow: number, startColumn: number, endRow: number, endColumn: number): Range {
+  const node: SyntaxNode | null = getNodeFromRange(tree, startRow, startColumn, endRow, endColumn);
+  if (!node) {
+    return Range.create(0, 0, 0, 0);
+  }
+  return getRangeForNode(node.childForFieldName('name') || node.children[0].childForFieldName('function_name') || node);
+}
+
 export function getContinuousRangeForNodes(nodes: SyntaxNode[]): Range[] {
   nodes.forEach(node => {
     const range = getRangeForNode(node);
@@ -65,6 +78,16 @@ export function getContinuousRangeForNodes(nodes: SyntaxNode[]): Range[] {
 
 export function getRangeForURI(uri: string): Range {
   return Range.create(0, 0, 0, 0);
+}
+
+export function getIdentifierPositionWithinPosition(node: SyntaxNode): FunctionReferencePosition {
+  const identifierNode: SyntaxNode | null = node.childForFieldName('name') || node.children[0].childForFieldName('identifier');
+  return {
+    startRow: identifierNode?.startPosition.row || node.startPosition.row,
+    startColumn: identifierNode?.startPosition.column || node.startPosition.column,
+    endRow: identifierNode?.endPosition.row || node.endPosition.row,
+    endColumn: identifierNode?.endPosition.column || node.endPosition.column
+  }
 }
 
 /**
@@ -88,8 +111,6 @@ export function getListOfRangeForPackageStatements(allPackageNodes: SyntaxNode[]
 }
 
 export {
-  forEachNodeAnalyze,
-  forEachNode,
-  getRangeForNode,
-  getPackageNodeForNode
-}
+  forEachNode, forEachNodeAnalyze, getPackageNodeForNode, getRangeForNode
+};
+

@@ -1,13 +1,16 @@
-import * as Parser from 'web-tree-sitter';
 import * as fs from 'fs/promises';
+import * as path from 'path';
+import { brotliCompressSync, brotliDecompressSync } from 'node:zlib';
 import { TextDocument } from 'vscode-languageserver-textdocument';
-import { Connection, Definition, Diagnostic, DiagnosticSeverity, ErrorCodes, InitializeParams, Location, Position, Range, ResponseError, SymbolInformation, SymbolKind, TextEdit, WorkspaceEdit, } from 'vscode-languageserver/node';
-import { getGlobPattern } from './util/perl_utils';
+import { Connection, Definition, Diagnostic, DiagnosticSeverity, DocumentSymbol, ErrorCodes, InitializeParams, Location, Position, Range, ResponseError, SymbolInformation, SymbolKind, TextEdit, WorkspaceEdit, WorkspaceSymbol, } from 'vscode-languageserver/node';
+import * as Parser from 'web-tree-sitter';
+import { AnalyzeMode, CachingStrategy, ExtensionSettings, FileDeclarations, FunctionReference, ImportDetail, MAX_NUMBER_OF_FILES_TO_BEGIN_CACHING, URIToTree } from './types/common.types';
 import { getFilesFromPath } from './util/file';
-import { forEachNode, forEachNodeAnalyze, getContinuousRangeForNodes, getListOfRangeForPackageStatements, getPackageNodeForNode, getRangeForNode, getRangeForURI } from './util/tree_sitter_utils';
-import { AnalyzeMode, CachingStrategy, ExtensionSettings, FileDeclarations, ImportDetail, URIToTree } from './types/common.types';
+import { getGlobPattern } from './util/perl_utils';
+import { forEachNode, forEachNodeAnalyze, getFunctionNameRangeFromDeclarationRange, getIdentifierPositionWithinPosition, getPackageNodeForNode, getRangeForNode, getRangeForURI } from './util/tree_sitter_utils';
+
 import { fileURLToPath } from 'url';
-import { extractSubroutineNameFromFullFunctionName } from './util/basic';
+import { createFunctionRefKey, extractSubroutineNameFromFullFunctionName, parseFunctionRefKey } from './util/basic';
 
 class Analyzer {
   // dependencies
@@ -16,14 +19,67 @@ class Analyzer {
   // other properties
   private uriToTree: URIToTree = new Map();
   private uriToVariableDeclarations: FileDeclarations = new Map();
-  private uriToFunctionDeclarations: FileDeclarations = new Map();
-  private uriToFunctionReferences: FileDeclarations = new Map();
+  private uriToFunctionDeclarations: Map<string, FunctionReference[]> = new Map();;
+  private uriToFunctionReferences: Map<string, Map<string, FunctionReference[]>> = new Map();
+
+  private workspaceFolder: string = '';
 
   /**
    * The constructor which injects the dependencies
    */
-  constructor(parser: Parser) {
+  constructor(parser: Parser, workspaceFolder: string) {
     this.parser = parser;
+    this.workspaceFolder = workspaceFolder;
+  }
+
+  private async saveFunctionMapToFile(): Promise<void> {
+    try {
+      // if there are more than 10000 files, lets save to disk
+      if (! (this.uriToFunctionDeclarations.size > MAX_NUMBER_OF_FILES_TO_BEGIN_CACHING || this.uriToFunctionReferences.size > MAX_NUMBER_OF_FILES_TO_BEGIN_CACHING)) {
+        return;
+      }
+      const functionMapPath = path.join(fileURLToPath(this.workspaceFolder), '.vscode', 'function_map.json');
+
+      await fs.mkdir(path.dirname(functionMapPath), { recursive: true });
+      
+      // Convert Maps to plain objects for JSON serialization
+      const dataToSave = {
+        uriToFunctionDeclarations: Object.fromEntries(this.uriToFunctionDeclarations),
+        functionReference: Object.fromEntries(this.uriToFunctionReferences),
+      };
+      
+      // Convert to JSON string and compress using Brotli (better compression than gzip)
+      // const compressedData: Buffer = brotliCompressSync(JSON.stringify(dataToSave));
+      
+      // Write the compressed data to file
+      // await fs.writeFile(functionMapPath, compressedData);
+      await fs.writeFile(functionMapPath, JSON.stringify(dataToSave), 'utf-8');
+
+      console.log('Function map saved successfully to .vscode/function_map.json file');
+      
+    } catch (error) {
+      console.error('Error saving function map:', error);
+    }
+  }
+
+  private async loadFunctionMapFromFile(): Promise<boolean> {
+    try {
+      // const functionMapPath = path.join(fileURLToPath(this.workspaceFolder), '.vscode', 'function_map.zip');
+      // const compressedData: Buffer = await fs.readFile(functionMapPath);
+      // const decompressedBuffer: Buffer = brotliDecompressSync(compressedData);
+      // const data = JSON.parse(decompressedBuffer.toString('utf8'));
+
+      const functionMapPath = path.join(fileURLToPath(this.workspaceFolder), '.vscode', 'function_map.json');
+      const data = JSON.parse(await fs.readFile(functionMapPath, 'utf-8'));
+
+      this.uriToFunctionDeclarations = new Map(Object.entries(data.uriToFunctionDeclarations || {}));
+      this.uriToFunctionReferences = new Map(Object.entries(data.functionReference || {}));
+
+      return true;
+    } catch (error) {
+      console.info('Loading function map:', error);
+      return false;
+    }
   }
 
   /**
@@ -51,10 +107,7 @@ class Analyzer {
     }
 
     // reset when the file is being analyzed again
-    // this.uriToVariableDeclarations[uri] = {};
-    this.uriToFunctionDeclarations.set(uri, new Map());
-    this.uriToFunctionReferences.set(uri, new Map());
-
+    this.uriToVariableDeclarations.set(uri, new Map());
 
     /**
      * Parses the tree and pushes into the problems array,
@@ -111,9 +164,7 @@ class Analyzer {
       });
     }
 
-    this.extractAndSetDeclarationsFromFile(document, tree.rootNode);
-
-    this.extractAndSetFunctionReferencesFromFile(document, tree.rootNode);
+    this.extractAndSetDeclarationsAndReferencesFromFile(document, tree.rootNode);
 
     // free up those heap memory
     tree.delete();
@@ -123,136 +174,77 @@ class Analyzer {
   }
 
   /**
-   * Given a document, and syntax tree, gets all the declarations
-   * in file, and sets it in the cache.
-   * 
-   * @function extractAndSetDeclarationsFromFile
+   * Extracts and sets both function declarations and references from the syntax tree in a single pass.
+   * Replaces extractAndSetDeclarationsFromFile and extractAndSetFunctionReferencesFromFile.
+   * @function extractAndSetDeclarationsAndReferencesFromFile
    * @param document the current perl document
    * @param rootNode the rootNode of the syntax tree
    */
-  private extractAndSetDeclarationsFromFile(document: TextDocument, rootNode: Parser.SyntaxNode): void {
-    const uri: string = document.uri;
+  private extractAndSetDeclarationsAndReferencesFromFile(document: TextDocument, rootNode: Parser.SyntaxNode): void {
+    const uri = document.uri;
+    const functionDefs: FunctionReference[] = [];
+    const functionRefs: Map<string, FunctionReference[]> = new Map();
 
-    // Get all the variable and function declarations alone
-    let variableDeclarationNodes: Parser.SyntaxNode[] = [];
-    const functionDeclarationNodes: Parser.SyntaxNode[] = rootNode.descendantsOfType('function_definition');
+    this.uriToFunctionDeclarations.set(uri, []);
+    this.uriToFunctionReferences.set(uri, new Map());
 
-    // TODO: get clear on variable cache strategy
-    if (0) {
-      variableDeclarationNodes = [
-        ...rootNode.descendantsOfType('multi_var_declaration'),
-        ...rootNode.descendantsOfType('single_var_declaration'),
-      ];
+    // Single pass through all relevant nodes
+    const nodes = rootNode.descendantsOfType([
+      'function_definition',
+      'call_expression_with_args_with_brackets',
+      'call_expression_with_args_without_brackets',
+      'call_expression_with_variable',
+      'call_expression_with_spaced_args',
+      'call_expression_recursive',
+      'method_invocation',
+    ]);
+
+    for (const node of nodes) {
+      // Function definition
+      if (node.type === 'function_definition') {
+        const functionNameNode = node.childForFieldName('name');
+        if (!functionNameNode) continue;
+
+        functionDefs.push({
+          uri,
+          functionName: functionNameNode.text,
+          packageName: getPackageNodeForNode(node)?.descendantsOfType("package_name")[0]?.text || '',
+          position: {
+            startRow: functionNameNode.startPosition.row,
+            startColumn: functionNameNode.startPosition.column,
+            endRow: functionNameNode.endPosition.row,
+            endColumn: functionNameNode.endPosition.column,
+          },
+        });
+      }
+      // Function reference
+      else {
+        const functionNameNode = node.childForFieldName('function_name') ||
+          node.children[0]?.childForFieldName('function_name');
+        if (!functionNameNode) continue;
+
+        const functionName = functionNameNode.text;
+        const functionRef: FunctionReference = {
+          uri,
+          functionName,
+          packageName: node.descendantsOfType("package_name")[0]?.text || '',
+          position: {
+            startRow: functionNameNode.startPosition.row,
+            startColumn: functionNameNode.startPosition.column,
+            endRow: functionNameNode.endPosition.row,
+            endColumn: functionNameNode.endPosition.column,
+          },
+        };
+
+        const existingRefsForSameFn: FunctionReference[] = functionRefs.get(functionName) || [];
+        existingRefsForSameFn.push(functionRef);
+        functionRefs.set(functionName, existingRefsForSameFn);
+      }
     }
 
-    // Each declaration could have a single or multiple variables
-    // 1) my $a;
-    // 2) my ($a, $b, $c);
-    variableDeclarationNodes.forEach(declarationNode => {
-      // a.children[0].childForFieldName('name')
-      let variableNodes: Parser.SyntaxNode[] = [];
-
-      forEachNode(declarationNode, (node) => {
-        const variable: Parser.SyntaxNode | null = node.childForFieldName('name');
-
-        if (variable) {
-          variableNodes.push(variable);
-        }
-
-        return true;
-      });
-
-      variableNodes.forEach(variableNode => {
-        const variableName: string = variableNode.text;
-
-        let namedDeclarations = this.uriToVariableDeclarations.get(uri)?.get(variableName) || [];
-
-        namedDeclarations.push(
-          SymbolInformation.create(
-            variableName,
-            SymbolKind.Variable,
-            getRangeForNode(variableNode),
-            uri,
-            variableNode.parent?.text
-          ),
-        );
-
-        const existingVariables = this.uriToVariableDeclarations.get(uri);
-        existingVariables?.set(variableName, namedDeclarations);
-        if (existingVariables) {
-          this.uriToVariableDeclarations.set(uri, existingVariables);
-        }
-      });
-    });
-
-    functionDeclarationNodes.forEach(functionDeclarationNode => {
-      const functionNameNode: Parser.SyntaxNode | null = functionDeclarationNode.childForFieldName('name');
-      
-      if (!functionNameNode) {
-        return;
-      }
-      
-      const functionName: string = functionNameNode.text;
-      const packageName: string = getPackageNodeForNode(functionDeclarationNode)?.descendantsOfType("package_name")[0].text || '';
-
-      let namedDeclarations: SymbolInformation[] = this.uriToFunctionDeclarations.get(uri)?.get(functionName) || [];
-
-      namedDeclarations.push(
-        SymbolInformation.create(
-          packageName ? packageName + '::' + functionName : functionName,
-          SymbolKind.Function,
-          getRangeForNode(functionNameNode),
-          uri,
-          packageName,
-        ),
-      );
-
-      const existingFunctions = this.uriToFunctionDeclarations.get(uri);
-      existingFunctions?.set(functionName, namedDeclarations);
-      if (existingFunctions) {
-        this.uriToFunctionDeclarations.set(uri, existingFunctions);
-      }
-    });
-  }
-
-  private extractAndSetFunctionReferencesFromFile(document: TextDocument, rootNode: Parser.SyntaxNode): void {
-    const functionNodes: Parser.SyntaxNode[] = [
-      ...rootNode.descendantsOfType('call_expression_with_args_with_brackets'),
-      ...rootNode.descendantsOfType('call_expression_with_args_without_brackets'),
-      ...rootNode.descendantsOfType('call_expression_with_variable'),
-      ...rootNode.descendantsOfType('call_expression_with_spaced_args'),
-      ...rootNode.descendantsOfType('call_expression_recursive'),
-      ...rootNode.descendantsOfType('method_invocation'),
-    ];
-
-    functionNodes.forEach(functionNode => {
-      const functionNameNode: Parser.SyntaxNode | null = functionNode.childForFieldName('function_name')
-                                                            || functionNode.children[0].childForFieldName('function_name');
-
-      if (!functionNameNode) {
-        return;
-      }
-      const functionName: string = functionNameNode.text;
-      const packageName: string = functionNode.descendantsOfType("package_name")[0]?.text || '';
-
-      let namedReferences = this.uriToFunctionReferences.get(document.uri)?.get(functionName) || [];
-
-      namedReferences.push(
-        SymbolInformation.create(
-          functionName,
-          SymbolKind.Function,
-          getRangeForNode(functionNameNode),
-          document.uri,
-          packageName,
-        ),
-      );
-
-      const existingReferences = this.uriToFunctionReferences.get(document.uri);
-      existingReferences?.set(functionName, namedReferences);
-      if (existingReferences) {
-        this.uriToFunctionReferences.set(document.uri, existingReferences);
-      }
-    });
+    // Update function declarations
+    this.uriToFunctionDeclarations.set(uri, functionDefs);
+    this.uriToFunctionReferences.set(uri, functionRefs);
   }
 
   /**
@@ -270,10 +262,18 @@ class Analyzer {
     settings: ExtensionSettings,
   ): Promise<void> {
 
+    // first load cached map if available
+    const hasLoadedMap = await this.loadFunctionMapFromFile();
+
     const workspaceFolders: InitializeParams['workspaceFolders'] = params.workspaceFolders;
     if (workspaceFolders) {
       const progress = await connection.window.createWorkDoneProgress();
-      progress.begin('Indexing perl files', 0, 'Starting up...', undefined);
+      if (hasLoadedMap) {
+        progress.begin('Re-indexing perl files', 0, 'Starting up...', undefined);
+      }
+      else {
+        progress.begin('(Please wait) Indexing perl files', 0, 'Starting up...', undefined);
+      }
 
       const globPattern = getGlobPattern();
 
@@ -313,9 +313,8 @@ class Analyzer {
       let totalFiles: number = filePaths.length;
       let getProblems: boolean = true;
 
-      await Promise.all(
-        filePaths.map(async (filePath) => {
-          let fileContent: string;
+      for (const filePath of filePaths) {
+        let fileContent: string;
           try {
             fileContent = await fs.readFile(filePath, { encoding: 'utf-8' });
           }
@@ -356,18 +355,19 @@ class Analyzer {
           finally {
             fileCounter = fileCounter + 1;
 
-            // connection.console.debug(`Analyzed file ${uri} , prob - ${problemsCounter}, fileC - ${fileCounter}, goal - ${totalFiles}, mem - ${process.memoryUsage().heapUsed / 1024 / 1024} MB`);
-            
-            let percentage: number = Math.round( (fileCounter / totalFiles) * 100 );
+            // connection.console.debug(`Analyzed file ${uri} , prob - ${problemsCounter}, fileC - ${fileCounter}, goal - ${totalFiles}, mem - ${process.memoryUsage().heapUsed / 1024 / 1024} MB , time passed - ${getTimePassed()}`);
+
+            let percentage: number = Math.round((fileCounter / totalFiles) * 100);
             progress.report(percentage, `in progress - ${percentage}%`);
 
-          if (fileCounter === filePaths.length) {
+            if (fileCounter === filePaths.length) {
               connection.console.info(`Analyzer finished after ${getTimePassed()}`);
               progress.done();
             }
           }
-        })
-      );
+      }
+
+      this.saveFunctionMapToFile();
     }
   }
 
@@ -379,7 +379,7 @@ class Analyzer {
    * @returns Tree
    */
   public async getTreeFromURI(uri: string): Promise<Parser.Tree | undefined> {
-    if (! this.uriToTree.has(uri)) {
+    if (!this.uriToTree.has(uri)) {
       let fileContent: string = '';
       try {
         fileContent = await fs.readFile(fileURLToPath(uri), { encoding: 'utf-8' });
@@ -436,7 +436,7 @@ class Analyzer {
       let uniqueVariableSet: Set<string> = new Set();
 
       allVariablesAvailableForCurrentScope.forEach(variable => {
-        if (variable.text === identifierName && ! uniqueVariableSet.has(variable.text)) {
+        if (variable.text === identifierName && !uniqueVariableSet.has(variable.text)) {
 
           uniqueVariableSet.add(variable.text);
 
@@ -446,7 +446,7 @@ class Analyzer {
               SymbolKind.Variable,
               getRangeForNode(variable),
               uri,
-              variable.parent?.text,
+              variable.parent?.text
             ),
           );
         }
@@ -455,86 +455,113 @@ class Analyzer {
     // else should be a function
     else {
       this.uriToFunctionDeclarations.forEach((functionDeclarations, thisUri) => {
-        const declarationNames: SymbolInformation[] = functionDeclarations?.get(identifierName) || [];
-        declarationNames.forEach(declaration => symbols.push(declaration));
+        functionDeclarations.forEach(declaration => {
+          if (declaration.functionName === identifierName) {
+            symbols.push(
+              SymbolInformation.create(
+                declaration.functionName,
+                SymbolKind.Function,
+                Range.create(
+                  Position.create(declaration.position.startRow, declaration.position.startColumn),
+                  Position.create(declaration.position.endRow, declaration.position.endColumn)
+                ),
+                thisUri,
+                declaration.packageName,
+              ),
+            );
+          }
+        });
       });
     }
 
     return symbols.map(symbol => symbol.location);
   }
 
-  public findAllReferences(fileName: string, nodeAtPoint: Parser.SyntaxNode): Location[] {
-    const symbols: SymbolInformation[] = [];
-
+  public async findAllReferences(fileName: string, nodeAtPoint: Parser.SyntaxNode, onlyCurrentFile: boolean = false): Promise<Location[]> {
+    const locations: Location[] = [];
     const identifierName: string = nodeAtPoint.text;
 
-    // first push the current nodeAtPoint itself as a reference
-    symbols.push(
-      SymbolInformation.create(
-        nodeAtPoint.text,
-        SymbolKind.Variable, // can be anything.
-        getRangeForNode(nodeAtPoint),
-        fileName,
-        nodeAtPoint.parent?.text,
-      ),
-    );
+    // Add the current node as a reference
+    // NOTE: this might be needed, so uncommented. Remove if true.
+    // locations.push(Location.create(fileName, getRangeForNode(nodeAtPoint)));
 
     if (nodeAtPoint.type.match(/_variable$/)) {
       const allVariablesAvailableForCurrentScope: Parser.SyntaxNode[] = this.getAllVariablesWithInScopeAtCurrentNode(fileName, nodeAtPoint, true);
-
       allVariablesAvailableForCurrentScope.forEach(variable => {
         if (variable.text === identifierName) {
-          symbols.push(
-            SymbolInformation.create(
-              variable.text,
-              SymbolKind.Variable,
-              getRangeForNode(variable),
-              fileName,
-              variable.parent?.text,
-            ),
-          );
+          locations.push(Location.create(fileName, getRangeForNode(variable)));
         }
       });
     }
-    // else its a function
-    else {
-      let packageToRefer: string = nodeAtPoint.parent?.descendantsOfType("package_name")[0]?.text || '';
-      let allFunctionSymbolsMatchingName: SymbolInformation[] = [];
-
-      this.uriToFunctionReferences.forEach((functionReferences, thisUri) => {
-        const referenceNames: SymbolInformation[] = functionReferences?.get(identifierName) || [];
-        allFunctionSymbolsMatchingName.push(...referenceNames);
-      });
-
-      // TODO: have references pick based on the package name properly
-      // symbols.push(
-      //   ...allFunctionSymbolsMatchingName.filter(functionSymbol => (functionSymbol.containerName === packageToRefer))
-      // );
-      symbols.push(...allFunctionSymbolsMatchingName);
-
-      // add the function declaration as well
-      this.uriToFunctionDeclarations.forEach((functionDeclarations, thisUri) => {
-        const declarationNames: SymbolInformation[] = functionDeclarations?.get(identifierName) || [];
-        declarationNames.forEach((declaration: SymbolInformation) => {
-          symbols.push(declaration);
-          // if (declaration.containerName === packageToRefer) {
-          //   symbols.push(declaration);
-          // }
+    else if (
+      nodeAtPoint.parent?.type.match(/call_expression/)
+      || nodeAtPoint.parent?.type.match(/method_invocation/)
+      || nodeAtPoint.parent?.type.match(/function_definition/)
+    ) {
+      if (onlyCurrentFile) {
+        this.uriToFunctionReferences.get(fileName)?.forEach((functionRefs: FunctionReference[], functionName: string) => {
+          if (functionName === identifierName) {
+            functionRefs.forEach(ref => {
+              locations.push(Location.create(fileName, Range.create(
+                ref.position.startRow,
+                ref.position.startColumn,
+                ref.position.endRow,
+                ref.position.endColumn
+              )));
+            });
+          }
         });
-      });
-      
+      }
+      else {
+        // Function: get all FunctionReference for this function name
+        this.uriToFunctionReferences.forEach((functionRefMap, uri) => {
+          functionRefMap?.get(identifierName)?.forEach(ref => {
+            locations.push(Location.create(ref.uri, Range.create(
+              ref.position.startRow,
+              ref.position.startColumn,
+              ref.position.endRow,
+              ref.position.endColumn
+            )));
+          });
+        });
+      }
+      // add the function declaration as well
+      if (onlyCurrentFile) {
+        this.uriToFunctionDeclarations.get(fileName)?.forEach((declaration: FunctionReference) => {
+          if (declaration.functionName === identifierName) {
+            locations.push(Location.create(fileName, Range.create(
+              declaration.position.startRow,
+              declaration.position.startColumn,
+              declaration.position.endRow,
+              declaration.position.endColumn
+            )));
+          }
+        });
+      }
+      else {
+        this.uriToFunctionDeclarations.forEach((functionDeclarations, thisUri) => {
+          functionDeclarations.forEach((declaration) => {
+            if (declaration.functionName === identifierName) {
+              locations.push(Location.create(thisUri, Range.create(
+                declaration.position.startRow,
+                declaration.position.startColumn,
+                declaration.position.endRow,
+                declaration.position.endColumn
+              )));
+            }
+          });
+        });
+      }
     }
-
-    return symbols.map(symbol => symbol.location);
-
+    return locations;
   }
 
-  public renameSymbol(fileName: string, nodeAtPoint: Parser.SyntaxNode, newName: string): WorkspaceEdit {
+  public async renameSymbol(fileName: string, nodeAtPoint: Parser.SyntaxNode, newName: string): Promise<WorkspaceEdit> {
     if (nodeAtPoint.type.match(/_variable$/)) {
       return this.renameVariable(fileName, nodeAtPoint, newName);
     }
 
-    else if (nodeAtPoint.parent?.type.match(/call_expression/) || nodeAtPoint.parent?.type.match(/function_definition/)) {
+    else if (nodeAtPoint.parent?.type.match(/call_expression/) || nodeAtPoint.parent?.type.match(/method_invocation/) || nodeAtPoint.parent?.type.match(/function_definition/)) {
       return this.renameFunction(fileName, nodeAtPoint, newName);
     }
 
@@ -542,58 +569,50 @@ class Analyzer {
   }
 
 
-  public renameFunction(fileName: string, nodeAtPoint: Parser.SyntaxNode, newName: string): WorkspaceEdit {
-    // validate function name
+  public async renameFunction(fileName: string, nodeAtPoint: Parser.SyntaxNode, newName: string): Promise<WorkspaceEdit> {
     if (newName.length === 0) {
       throw new ResponseError(ErrorCodes.InvalidParams, 'Function name cannot be empty');
     }
 
-    let renameChanges : {
+    let renameChanges: {
       [uri: string]: TextEdit[];
     } = {};
     const functionName: string = nodeAtPoint.text;
 
-    let allFunctionSymbolsMatchingName: SymbolInformation[] = [];
-
-    this.uriToFunctionReferences.forEach((functionReferences, thisUri) => {
-      const referenceNames: SymbolInformation[] = functionReferences?.get(functionName) || [];
-      allFunctionSymbolsMatchingName.push(...referenceNames);
-    });
-
-    allFunctionSymbolsMatchingName.forEach(functionRef => {
-      let additionalEditsInFile: TextEdit[] = renameChanges[functionRef.location.uri] || [];
-      additionalEditsInFile.push(
-        {
+    // Get all FunctionReferences for this function name
+    this.uriToFunctionReferences.forEach(async (functionRefs, uri) => {
+      functionRefs?.get(functionName)?.forEach(async ref => {
+        let additionalEditsInFile: TextEdit[] = renameChanges[uri] || [];
+        const tree = await this.getTreeFromURI(uri);
+        additionalEditsInFile.push({
           newText: newName,
-          range: functionRef.location.range
-        }
-      );
-      renameChanges[functionRef.location.uri] = additionalEditsInFile;
+          range: getFunctionNameRangeFromDeclarationRange(tree!, ref.position.startRow, ref.position.startColumn, ref.position.endRow, ref.position.endColumn)
+        });
+        renameChanges[uri] = additionalEditsInFile;
+      });
     });
 
     // get the function declaration as well
     this.uriToFunctionDeclarations.forEach((functionDeclarations, thisUri) => {
-      const declarationNames: SymbolInformation[] = functionDeclarations?.get(functionName) || [];
-      declarationNames.forEach((declaration: SymbolInformation) => {
-        let additionalEditsInFile: TextEdit[] = renameChanges[declaration.location.uri] || [];
-        additionalEditsInFile.push(
-          {
+      functionDeclarations.forEach(async (declaration) => {
+        if (declaration.functionName === functionName) {
+          let additionalEditsInFile: TextEdit[] = renameChanges[thisUri] || [];
+          const tree = await this.getTreeFromURI(thisUri);
+          additionalEditsInFile.push({
             newText: newName,
-            range: declaration.location.range
-          }
-        );
-
-        renameChanges[declaration.location.uri] = additionalEditsInFile;
+            range: getFunctionNameRangeFromDeclarationRange(tree!, declaration.position.startRow, declaration.position.startColumn, declaration.position.endRow, declaration.position.endColumn)
+          });
+          renameChanges[thisUri] = additionalEditsInFile;
+        }
       });
     });
 
     return {
-      changes: renameChanges,      
+      changes: renameChanges,
     }
-
   }
 
-  public renameVariable(fileName: string, nodeAtPoint: Parser.SyntaxNode, newName: string): WorkspaceEdit {
+  public async renameVariable(fileName: string, nodeAtPoint: Parser.SyntaxNode, newName: string): Promise<WorkspaceEdit> {
     // validate variable name
     if (newName.length === 0) {
       throw new ResponseError(ErrorCodes.InvalidParams, 'Variable name cannot be empty');
@@ -624,13 +643,14 @@ class Analyzer {
     let symbolsMatchingWord: SymbolInformation[] = [];
 
     this.uriToFunctionDeclarations.forEach((functionDeclarations, thisUri) => {
-      let onlyValues: SymbolInformation[] | undefined = Array.from(functionDeclarations.values()).at(0);
+      let onlyValues: FunctionReference | undefined = Array.from(functionDeclarations.values()).at(0);
 
       // get the package completions
-      if (onlyValues && onlyValues[0].containerName?.includes(word)) {
+      // we could get the first element, since packageName is unique per uri
+      if (onlyValues?.packageName?.toLowerCase().includes(word.toLowerCase())) {
         symbolsMatchingWord.push(
           SymbolInformation.create(
-            onlyValues[0].containerName,
+            onlyValues.packageName,
             SymbolKind.Package,
             getRangeForURI(thisUri),
             thisUri,
@@ -639,18 +659,39 @@ class Analyzer {
         );
       }
 
-      // Iterate over the key and value of the Map
-      functionDeclarations.forEach((valueSymbolInformation, keyFunctionName) => {
-        if (keyFunctionName.includes(word)) {
+      functionDeclarations.forEach(declaration => {
+        if (declaration.functionName.toLowerCase().includes(word.toLowerCase())) {
           // if the function is current URI, then put it in priority list
           if (currentURI === thisUri) {
             prioritySymbolsMatchingWord.push(
-              ...valueSymbolInformation
+              SymbolInformation.create(
+                declaration.functionName,
+                SymbolKind.Function,
+                Range.create(
+                  declaration.position.startRow,
+                  declaration.position.startColumn,
+                  declaration.position.endRow,
+                  declaration.position.endColumn
+                ),
+                declaration.uri,
+                declaration.packageName,
+              ),
             );
           }
           else {
             symbolsMatchingWord.push(
-              ...valueSymbolInformation
+              SymbolInformation.create(
+                declaration.functionName,
+                SymbolKind.Function,
+                Range.create(
+                  declaration.position.startRow,
+                  declaration.position.startColumn,
+                  declaration.position.endRow,
+                  declaration.position.endColumn
+                ),
+                declaration.uri,
+                declaration.packageName,
+              ),
             );
           }
         }
@@ -697,7 +738,7 @@ class Analyzer {
       if (nodeInLoop.type.match(/_variable$/)) {
         rootVariables.push(nodeInLoop);
       }
-      else if(nodeInLoop.type === 'block') {
+      else if (nodeInLoop.type === 'block') {
         return false;
       }
       return true;
@@ -746,7 +787,7 @@ class Analyzer {
           && variable.endPosition.column < currentNode.startPosition.column
         )
       )
-    });    
+    });
   }
 
   public async getAdditionalEditsForFunctionImports(currentFileName: string, functionToImport: SymbolInformation): Promise<TextEdit[] | undefined> {
@@ -814,7 +855,7 @@ class Analyzer {
     currentTree
 
     return Range.create(
-     0,0,0,0
+      0, 0, 0, 0
     )
   }
 
@@ -841,7 +882,7 @@ class Analyzer {
     });
 
     fnOnlyImportPackages = fnOnlyImportPackages.filter(importString => !packagesToBeAtTop.includes(importString.split(' ')[1].split(';')[0]));
-    
+
     return fullPackagesAtTop.sort().join('\n')
       + ((fullPackagesAtTop.length > 0) ? "\n\n" : '')
       + fnOnlyPackageAtTop.sort().join('\n')
@@ -859,7 +900,7 @@ class Analyzer {
 
     let fullImportStatements: string[] = [];
     let fnOnlyImportStatements: string[] = [];
-    let ranges: Range [] = [];
+    let ranges: Range[] = [];
 
     allPackageImportsInCurrentFile.forEach((statement: Parser.SyntaxNode, index: number) => {
       if (statement.child(2)?.type === 'word_list_qw') {
@@ -870,7 +911,7 @@ class Analyzer {
       }
 
       ranges.push(getRangeForNode(statement));
-      
+
     });
 
     return {
@@ -927,6 +968,65 @@ class Analyzer {
     }
 
     return null;
+  }
+
+  public async getAllSymbolsForFile(fileName: string): Promise<DocumentSymbol[]> {
+    const symbols: DocumentSymbol[] = [];
+
+    this.uriToFunctionDeclarations.get(fileName)?.forEach((functionDeclarations: FunctionReference) => {
+      symbols.push(
+        DocumentSymbol.create(
+          functionDeclarations.functionName,
+          '',
+          SymbolKind.Function,
+          Range.create(
+            Position.create(functionDeclarations.position.startRow, functionDeclarations.position.startColumn),
+            Position.create(functionDeclarations.position.endRow, functionDeclarations.position.endColumn),
+          ),
+          Range.create(
+            Position.create(functionDeclarations.position.startRow, functionDeclarations.position.startColumn),
+            Position.create(functionDeclarations.position.endRow, functionDeclarations.position.endColumn),
+          ),
+          [],
+        )
+      );
+    });
+    
+    return symbols;
+  }
+
+  public async getAllSymbolsMatchingWord(word: string): Promise<WorkspaceSymbol[]> {
+    const symbols: WorkspaceSymbol[] = [];
+
+    this.uriToFunctionDeclarations.forEach((functionDeclarations: FunctionReference[], uri: string) => {
+      functionDeclarations.forEach(functionDeclaration => {
+        if (functionDeclaration.functionName.toLowerCase().includes(word.toLowerCase())) {
+          symbols.push(
+            WorkspaceSymbol.create(
+              functionDeclaration.functionName,
+              SymbolKind.Function,
+              uri,
+              Range.create(
+                Position.create(functionDeclaration.position.startRow, functionDeclaration.position.startColumn),
+                Position.create(functionDeclaration.position.endRow, functionDeclaration.position.endColumn),
+              ),
+            )
+          );
+        }
+      });
+    });
+    
+    return symbols;
+  }
+  /**
+   * Cleans up all cached data for a given URI. Call this when a document is closed to prevent memory leaks.
+   * Usage: In your language server, call analyzer.cleanup(uri) from the onDidClose handler.
+   */
+  public cleanup(uri: string): void {
+    this.uriToTree.delete(uri);
+    this.uriToVariableDeclarations.delete(uri);
+    this.uriToFunctionDeclarations.delete(uri);
+    this.uriToFunctionReferences.delete(uri);
   }
 }
 

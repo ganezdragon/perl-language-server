@@ -4,6 +4,15 @@ All notable changes to the "perl-language-server" extension will be documented i
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [3.0.0]
+- Features:
+    - Debugger
+    - Caching for larger codebases
+    - Quick startup
+    - Document Highlight
+    - Workspace symbols
+    - Search functions across the project
+
 ## [2.0.0]
 - Features:
     - Improved syntax checks

@@ -1,5 +1,5 @@
 import { TextDocument } from "vscode-languageserver-textdocument";
-import { ClientCapabilities, CompletionItem, CompletionParams, Connection, Definition, DefinitionParams, DocumentHighlight, DocumentHighlightKind, DocumentHighlightParams, ErrorCodes, Hover, HoverParams, InitializeParams, Location, MarkupContent, MarkupKind, Range, ReferenceParams, RenameParams, ResponseError, SymbolInformation, SymbolKind, TextDocumentPositionParams, TextDocuments, TextEdit, WorkspaceEdit } from "vscode-languageserver/node";
+import { ClientCapabilities, CompletionItem, CompletionParams, Connection, Definition, DefinitionParams, DocumentHighlight, DocumentHighlightKind, DocumentHighlightParams, DocumentSymbol, DocumentSymbolParams, ErrorCodes, Hover, HoverParams, InitializeParams, Location, MarkupContent, MarkupKind, Range, ReferenceParams, RenameParams, ResponseError, SymbolInformation, SymbolKind, TextDocumentPositionParams, TextDocuments, TextEdit, WorkspaceEdit, WorkspaceSymbol, WorkspaceSymbolParams } from "vscode-languageserver/node";
 import * as Parser from 'web-tree-sitter';
 import Analyzer from "./analyzer";
 import { initializeParser } from "./parser";
@@ -57,7 +57,7 @@ export default class PerlServer {
     const settings = await connection.workspace.getConfiguration({
       section: 'perl',
     });
-    const analyzer: Analyzer = new Analyzer(parser);
+    const analyzer: Analyzer = new Analyzer(parser, params.workspaceFolders?.[0].uri || '');
     
     analyzer.analyzeFromWorkspace(connection, params, settings); // doing this async
 
@@ -100,6 +100,9 @@ export default class PerlServer {
     this.connection.onPrepareRename(this.onPrepareRename.bind(this))
     this.connection.onDocumentHighlight(this.onDocumentHighlight.bind(this));
     this.connection.onHover(this.onHover.bind(this));
+    // symbol stuffs
+    this.connection.onDocumentSymbol(this.onDocumentSymbol.bind(this));
+    this.connection.onWorkspaceSymbol(this.onWorkspaceSymbol.bind(this));
   }
 
   /**
@@ -257,7 +260,7 @@ export default class PerlServer {
       return [];
     }
 
-    return this.analyzer.findAllReferences(params.textDocument.uri, nodeAtPoint);
+    return await this.analyzer.findAllReferences(params.textDocument.uri, nodeAtPoint);
   }
 
   private async onRenameRequest(params: RenameParams): Promise<WorkspaceEdit> {
@@ -293,7 +296,7 @@ export default class PerlServer {
       return [];
     }
 
-    const allLocations: Location[] = this.analyzer.findAllReferences(params.textDocument.uri, nodeAtPoint);
+    const allLocations: Location[] = await this.analyzer.findAllReferences(params.textDocument.uri, nodeAtPoint, true);
 
     return allLocations.map(eachLocation => DocumentHighlight.create(eachLocation.range, DocumentHighlightKind.Read));
   }
@@ -319,6 +322,17 @@ export default class PerlServer {
       // skipping the optional range for now.
       // range: Range.create(0, 0, 1, 0),
     };
+  }
+
+  private async onDocumentSymbol(params: DocumentSymbolParams): Promise<DocumentSymbol[]> {
+    return this.analyzer.getAllSymbolsForFile(params.textDocument.uri);
+  }
+
+  private async onWorkspaceSymbol(params: WorkspaceSymbolParams): Promise<WorkspaceSymbol[]> {
+    if (params.query === '') {
+      return []; // return empty array if query is empty
+    }
+    return this.analyzer.getAllSymbolsMatchingWord(params.query);
   }
 
   /**

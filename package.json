@@ -2,7 +2,7 @@
   "name": "perl-language-server",
   "displayName": "Perl IDE",
   "description": "Provides tree-sitter based language support for Perl.",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "scripts": {
     "compile": "tsc -b",
     "clean": "rm -rf server/out && rm -rf client/out",
@@ -14,7 +14,8 @@
   },
   "main": "./client/out/extension",
   "activationEvents": [
-    "onLanguage:perl"
+    "onLanguage:perl",
+    "onDebug"
   ],
   "author": "ganezdragon",
   "publisher": "ganezdragon",
@@ -32,6 +33,10 @@
     "tree-sitter perl"
   ],
   "icon": "client/images/perl_logo.png",
+  "galleryBanner": {
+    "color": "#005a7d",
+    "theme": "dark"
+  },
   "categories": [
     "Programming Languages"
   ],
@@ -118,6 +123,74 @@
       {
         "language": "perl",
         "path": "./server/src/snippets/function.json"
+      }
+    ],
+    "breakpoints": [
+      {
+        "language": "perl"
+      }
+    ],
+    "debuggers": [
+      {
+        "type": "perl",
+        "label": "Perl Debug",
+        "program": "./server/out/debugger/debugAdapter.js",
+        "runtime": "node",
+        "languages": [
+          "perl"
+        ],
+        "configurationAttributes": {
+          "launch": {
+            "required": [
+              "program"
+            ],
+            "properties": {
+              "program": {
+                "type": "string",
+                "description": "Absolute path to a text file",
+                "default": "${file}"
+              },
+              "stopOnEntry": {
+                "type": "boolean",
+                "description": "Automatically stop after launch",
+                "default": false
+              },
+              "args": {
+                "type": "string",
+                "description": "Arguments passed to the program. Basically your @ARGV in Perl.",
+                "default": ""
+              },
+              "env": {
+                "type": "object",
+                "description": "Environment variables to be used",
+                "default": {}
+              }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "perl",
+            "request": "launch",
+            "name": "Launch current file",
+            "program": "${file}",
+            "stopOnEntry": false
+          }
+        ],
+         "configurationSnippets": [
+          {
+            "label": "Perl Debug: Launch script",
+            "description": "A new configuration for 'debugging' a user selected perl script file",
+            "body": {
+              "type": "perl",
+              "request": "launch",
+              "name": "Launch selected file",
+              "program": "^\"\\${file}\"",
+              "stopOnEntry": false,
+              "env": {}
+            }
+          }
+        ]
       }
     ]
   },

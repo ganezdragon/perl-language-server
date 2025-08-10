@@ -3,8 +3,10 @@
  * Other perl language core server features would be implemented in
  * the perlServer.ts file.
  */
+import * as net from 'net';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { createConnection, DidChangeConfigurationNotification, InitializeParams, InitializeResult, ProposedFeatures, TextDocuments, TextDocumentSyncKind } from 'vscode-languageserver/node';
+import { PerlDebugSession } from './debugger/perlDebugSession';
 import PerlServer from './perlServer';
 
 const documents: TextDocuments<TextDocument> = new TextDocuments(TextDocument);
@@ -46,9 +48,13 @@ connection.onInitialize(async (params: InitializeParams): Promise<InitializeResu
 			},
 
 			// goto definition
-			definitionProvider: true,
+			definitionProvider: {
+				workDoneProgress: true
+			},
 
-			hoverProvider: true,
+			hoverProvider: {
+				workDoneProgress: true
+			},
 
 			// goto implementation
 			implementationProvider: false,
@@ -61,6 +67,14 @@ connection.onInitialize(async (params: InitializeParams): Promise<InitializeResu
 				prepareProvider: true,
 			},
 			documentHighlightProvider: {
+				workDoneProgress: true
+			},
+
+			documentSymbolProvider: {
+				workDoneProgress: true
+			},
+
+			workspaceSymbolProvider: {
 				workDoneProgress: true
 			},
 		}
@@ -124,3 +138,15 @@ documents.listen(connection);
 
 //Listen on the connection
 connection.listen();
+
+// uncomment below while debugging locally
+if (process.env.VSCODE_DEBUGGING) {
+	const server = net.createServer(socket => {
+		const session = new PerlDebugSession();
+		session.setRunAsServer(true);
+		session.start(<NodeJS.ReadableStream>socket, socket);
+	}).listen(4711);
+}
+
+
+
