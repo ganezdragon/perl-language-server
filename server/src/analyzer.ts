@@ -355,7 +355,7 @@ class Analyzer {
           finally {
             fileCounter = fileCounter + 1;
 
-            connection.console.debug(`Analyzed file ${uri} , prob - ${problemsCounter}, fileC - ${fileCounter}, goal - ${totalFiles}, mem - ${process.memoryUsage().heapUsed / 1024 / 1024} MB , time passed - ${getTimePassed()}`);
+            // connection.console.debug(`Analyzed file ${uri} , prob - ${problemsCounter}, fileC - ${fileCounter}, goal - ${totalFiles}, mem - ${process.memoryUsage().heapUsed / 1024 / 1024} MB , time passed - ${getTimePassed()}`);
 
             let percentage: number = Math.round((fileCounter / totalFiles) * 100);
             progress.report(percentage, `in progress - ${percentage}%`);

@@ -2,7 +2,7 @@
   "name": "perl-language-server",
   "displayName": "Perl IDE",
   "description": "Provides tree-sitter based language support for Perl.",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "scripts": {
     "compile": "tsc -b",
     "clean": "rm -rf server/out && rm -rf client/out",
@@ -33,6 +33,10 @@
     "tree-sitter perl"
   ],
   "icon": "client/images/perl_logo.png",
+  "galleryBanner": {
+    "color": "#005a7d",
+    "theme": "dark"
+  },
   "categories": [
     "Programming Languages"
   ],

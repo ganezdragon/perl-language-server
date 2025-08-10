@@ -7,20 +7,19 @@ A simple perl language server written in typescript, with a client that's also w
 - 🔍 Syntax Checking
 - 🔗 Go to Definition
 - ✏️ Rename Symbol
-- 📚 Autocomplete
+- 📚 Autocomplete (without package import)
 - 🧭 Find References
 - 🖱️ Hover Info
 - ✨ Semantic Highlighting
 - 📘 Symbol Highlighting
 - 🐞 Debugger
 
-## 🐪 Perl Debugger
+## ▶️ Perl Debugger
 
 A modern Debugger Extension for Perl integrated with the Perl Language Server (PLS). This extension enables you to debug Perl scripts directly within VS Code using the built-in `perl -d` debugger interface.
 
 > ⚠️ Windows support is not guaranteed. Tested on **Linux** and **macOS**.
 
----
 
 ### ✨ Features
 
@@ -35,28 +34,35 @@ A modern Debugger Extension for Perl integrated with the Perl Language Server (P
 
 ---
 
-### 🚀 Getting Started
+## 🚀 Getting Started
+
+### 📦 Installation
 
 1. **Install the Extension** from the VS Code Marketplace (or sideload your `.vsix`)
-2. Ensure you have Perl installed and accessible in your PATH:
+2. The first time when perl files are loaded, it might say "(Please wait) Indexing perl files", depending on the size of your project. This is a one time, the extension should create a `function_map.json` file under .vscode folder and use it as a cache next time it launches.
+![alt text](asset/load_perl_to_memory.gif)
+
+### Feature: 🐞 Using the debugger, launching perl script
+
+1. (Only for using debugger) Ensure you have Perl installed and accessible in your PATH:
    ```bash
    perl -v
    ```
-3. Create or open a `.pl` file and goto next step or, additionally, configure your `launch.json`:
+2. Create or open a `.pl` file and goto next step or, additionally, configure your `launch.json`:
     ```json
     {
         "type": "perl",
         "request": "launch",
         "name": "Launch current file",
         "program": "${file}",
-        "stopOnEntry": true,
+        "stopOnEntry": false,
         "args": "",
         "env": {
             "LOL": 1
         }
     }
     ```
-4. Hit `F5` to start debugging,
+3. Hit `F5` to start debugging,
 
 ## ⚙️ Extension Settings
 
@@ -74,6 +80,10 @@ This extension contributes the following settings:
 - ⚠️ Advanced data structure rendering (e.g. y @vars) is string-parsed, may have edge cases
 
 ## 📦 Release Notes
+### 🟢 3.0.0
+- Feature release, with a working debugger.
+- check changelog for more details.
+
 ### 🟢 2.0.0 — Alpha Release
 - alpha release, with usable features.
 
