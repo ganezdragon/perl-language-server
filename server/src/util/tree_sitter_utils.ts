@@ -65,7 +65,7 @@ export function getFunctionNameRangeFromDeclarationRange(tree: Tree, startRow: n
   if (!node) {
     return Range.create(0, 0, 0, 0);
   }
-  return getRangeForNode(node.childForFieldName('name') || node.children[0].childForFieldName('function_name') || node);
+  return getRangeForNode(node.childForFieldName('name') || node.children[0]?.childForFieldName('function_name') || node);
 }
 
 export function getContinuousRangeForNodes(nodes: SyntaxNode[]): Range[] {

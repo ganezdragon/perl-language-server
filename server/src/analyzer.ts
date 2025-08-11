@@ -580,7 +580,7 @@ class Analyzer {
     const functionName: string = nodeAtPoint.text;
 
     // Get all FunctionReferences for this function name
-    this.uriToFunctionReferences.forEach(async (functionRefs, uri) => {
+    this.uriToFunctionReferences.forEach(async (functionRefs: Map<string, FunctionReference[]>, uri: string) => {
       functionRefs?.get(functionName)?.forEach(async ref => {
         let additionalEditsInFile: TextEdit[] = renameChanges[uri] || [];
         const tree = await this.getTreeFromURI(uri);
@@ -593,7 +593,7 @@ class Analyzer {
     });
 
     // get the function declaration as well
-    this.uriToFunctionDeclarations.forEach((functionDeclarations, thisUri) => {
+    this.uriToFunctionDeclarations.forEach((functionDeclarations: FunctionReference[], thisUri: string) => {
       functionDeclarations.forEach(async (declaration) => {
         if (declaration.functionName === functionName) {
           let additionalEditsInFile: TextEdit[] = renameChanges[thisUri] || [];
