@@ -42,6 +42,38 @@ A modern Debugger Extension for Perl integrated with the Perl Language Server (P
 2. The first time when perl files are loaded, it might say "(Please wait) Indexing perl files", depending on the size of your project. This is a one time, the extension should create a `function_map.json` file under .vscode folder and use it as a cache next time it launches.
 ![alt text](asset/load_perl_to_memory.gif)
 
+### Feature: Syntax check
+
+![dynamic syntax check](asset/syntax_check.gif)
+
+### Feature: Goto Definition
+
+![goto definition](asset/goto_definition.gif)
+
+### Feature: Find all references
+
+![goto references](asset/goto_references.gif)
+
+### Feature: Search for function in workspace
+
+![search for functions](asset/goto_symbol.gif)
+
+### Feature: Autocomplete (beta - without package imports)
+
+![auto complete](asset/auto_complete.gif)
+
+### Feature: Hover information
+
+![hover provider](asset/hover_information.gif)
+
+### Feature: Rename symbol
+
+![rename variables and functions](asset/rename_symbol.gif)
+
+### Feature: Symbol information
+
+![document symbol information](asset/symbol_information.gif)
+
 ### Feature: 🐞 Using the debugger, launching perl script
 
 1. (Only for using debugger) Ensure you have Perl installed and accessible in your PATH:
