@@ -76,6 +76,12 @@ A modern Debugger Extension for Perl integrated with the Perl Language Server (P
 
 ### Feature: 🐞 Using the debugger, launching perl script
 
+#### Pre-requites
+- Needs PadWalker to be installed for peeking variables in debugger.
+- Refer https://perlmaven.com/padwalker
+
+#### How to use the debugger
+
 1. (Only for using debugger) Ensure you have Perl installed and accessible in your PATH:
    ```bash
    perl -v
