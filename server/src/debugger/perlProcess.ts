@@ -35,7 +35,7 @@ export class PerlProcess extends EventEmitter {
             this.buffer += data;
             this._processBuffer();
             // NOTE: only for debugging
-            // this.emit('stdout.output', data.toString());
+            this.emit('stdout.output', data.toString());
 
             // if (data.includes('DB<')) {
             if (this.readyPrompt.test(data)) {
@@ -44,13 +44,14 @@ export class PerlProcess extends EventEmitter {
             }
         });
 
+
         // main channel
         this.process.stderr?.setEncoding('utf8');
         this.process.stderr?.on('data', (data) => {
             this.buffer += data;
             this._processBuffer();
             // NOTE: only for debugging
-            // this.emit('stderr.output', data.toString());
+            this.emit('stderr.output', data.toString());
 
             // if (data.includes('DB<')) {
             if (this.readyPrompt.test(data)) {
@@ -94,6 +95,10 @@ export class PerlProcess extends EventEmitter {
                 const resolve = this.waitingResolvers.shift();
                 resolve(output);
             }
+            // else {
+            //     this.emit('stderr.output', output);
+            //     this.emit('stdout.output', output);
+            // }
         }
     }
 
@@ -107,6 +112,12 @@ export class PerlProcess extends EventEmitter {
     public async autoFlushStdOut() {
         return this._sync(async () => {
             await this._sendCommand("$| = 1;\n");
+        });
+    }
+
+    public async setTty(ttyPath: string) {
+        return this._sync(async () => {
+            await this._sendCommand(`o TTY=${ttyPath}\n`);
         });
     }
 
@@ -140,6 +151,24 @@ export class PerlProcess extends EventEmitter {
         })
     }
 
+    public async ctrlC() {
+        // Send SIGINT to the entire process group. Since the debuggee is
+        // spawned with detached:true and (when shell:true) may involve a
+        // pipeline, signaling the group ensures perl -d receives SIGINT
+        // like a real Ctrl+C from a terminal, without killing just the shell.
+        const pid = this.process.pid;
+        if (pid) {
+            try {
+                // negative PID targets the process group on POSIX systems
+                process.kill(-pid, 'SIGINT');
+            } catch (err) {
+                // fallback: try the direct child if group signaling fails
+                try { this.process.kill('SIGINT'); } catch (_) { /* noop */ }
+            }
+        }
+        this.emit('paused');
+    }
+
     public async next() {
         return this._sync(async () => {
             this.emit('stopOnStep');
@@ -169,6 +198,7 @@ export class PerlProcess extends EventEmitter {
 
     public stop() {
         if (this.process) {
+            this.process.stdin?.end();
             this.process.kill();
         }
     }

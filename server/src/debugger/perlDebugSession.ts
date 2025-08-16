@@ -200,12 +200,11 @@ export class PerlDebugSession extends DebugSession {
             '-d',
             program,
             ...(args.args?.split(' ') || []),
-            ttyPath ? `| tee ${ttyPath}` : '',
         ];
 
-        if (ttyPath) {
-            writeToTty(ttyPath, `perl ${program} ${args.args}\r\n`);
-        }
+        // if (ttyPath) {
+        //     writeToTty(ttyPath, `perl ${program} ${args.args}\r\n`);
+        // }
 
         let childProcess: ChildProcess = spawn('perl', commandPlusArgs, spawnOptions);
 
@@ -213,7 +212,10 @@ export class PerlDebugSession extends DebugSession {
 
         // set things on the process
         // so that all the STDOUT is sent out as when available.
-        this.perlProcess.autoFlushStdOut();
+        await this.perlProcess.autoFlushStdOut();
+        // await this.perlProcess.setTty(ttyPath);
+
+        childProcess.stdout?.pipe(process.stdout);
 
         // register for all events
         this.perlProcess.on('stderr.output', (output: string) => {
@@ -240,6 +242,10 @@ export class PerlDebugSession extends DebugSession {
             this.sendEvent(new StoppedEvent('step', this.THREADID))
         })
 
+        this.perlProcess.on('paused', () => {
+            this.sendEvent(new StoppedEvent('pause', this.THREADID))
+        })
+
         this.perlProcess.on('terminated', (code: number | null) => {
             this.sendEvent(new TerminatedEvent());
         });
@@ -254,6 +260,12 @@ export class PerlDebugSession extends DebugSession {
         args: DebugProtocol.ContinueArguments
     ): void {
         this.perlProcess?.continue();
+        this.sendResponse(response);
+    }
+
+    protected pauseRequest(response: DebugProtocol.PauseResponse, args: DebugProtocol.PauseArguments, request?: DebugProtocol.Request): void {
+        this.perlProcess?.ctrlC();
+        // console.log('something');
         this.sendResponse(response);
     }
 
