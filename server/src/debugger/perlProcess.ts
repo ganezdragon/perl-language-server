@@ -25,7 +25,7 @@ export class PerlProcess extends EventEmitter {
 
         this.process = childProcess;
         this.buffer = '';
-        this.readyPrompt = /DB<\d+> $/;
+        this.readyPrompt = /DB<<?\d+>>?\s*$/;
         this.waitingResolvers = [];
 
         // basically nothing should be coming off of STDOUT
@@ -35,7 +35,7 @@ export class PerlProcess extends EventEmitter {
             this.buffer += data;
             this._processBuffer();
             // NOTE: only for debugging
-            this.emit('stdout.output', data.toString());
+            // this.emit('stdout.output', data.toString());
 
             // if (data.includes('DB<')) {
             if (this.readyPrompt.test(data)) {
@@ -48,10 +48,13 @@ export class PerlProcess extends EventEmitter {
         // main channel
         this.process.stderr?.setEncoding('utf8');
         this.process.stderr?.on('data', (data) => {
+            if (this.waitingResolvers.length === 0) {
+                this.emit('stderr.output', data.toString());
+            }
             this.buffer += data;
             this._processBuffer();
             // NOTE: only for debugging
-            this.emit('stderr.output', data.toString());
+            // this.emit('stderr.output', data.toString());
 
             // if (data.includes('DB<')) {
             if (this.readyPrompt.test(data)) {
@@ -95,35 +98,35 @@ export class PerlProcess extends EventEmitter {
                 const resolve = this.waitingResolvers.shift();
                 resolve(output);
             }
-            // else {
-            //     this.emit('stderr.output', output);
-            //     this.emit('stdout.output', output);
-            // }
         }
     }
 
-    private _sendCommand(command: string): Promise<string> {
+    private _getOutputForCommand(command: string): Promise<string> {
         return new Promise((resolve) => {
             this.waitingResolvers.push(resolve);
             this.process.stdin?.write(command);
         });
     }
 
+    private _sendCommand(command: string) {
+        this.process.stdin?.write(command);
+    }
+
     public async autoFlushStdOut() {
         return this._sync(async () => {
-            await this._sendCommand("$| = 1;\n");
+            this._sendCommand("$| = 1;\n");
         });
     }
 
     public async setTty(ttyPath: string) {
         return this._sync(async () => {
-            await this._sendCommand(`o TTY=${ttyPath}\n`);
+            this._sendCommand(`o TTY=${ttyPath}\n`);
         });
     }
 
     public async trace(): Promise<string> {
         return this._sync(async () => {
-            const output: string = await this._sendCommand('T\n');
+            const output: string = await this._getOutputForCommand('T\n');
             return output;
         });
     }
@@ -131,7 +134,7 @@ export class PerlProcess extends EventEmitter {
     public async setBreakpoint(file: string, line: number, condition?: string): Promise<string> {
         return this._sync(async () => {
             const cmd = `b ${file}:${line} ${condition}\n`;
-            return await this._sendCommand(cmd);
+            return await this._getOutputForCommand(cmd);
         });
     }
 
@@ -139,7 +142,7 @@ export class PerlProcess extends EventEmitter {
         return this._sync(async () => {
             for (const line of lines) {
                 const cmd = `B ${line}\n`;
-                await this._sendCommand(cmd);
+                this._sendCommand(cmd);
             }
         });
     }
@@ -147,7 +150,7 @@ export class PerlProcess extends EventEmitter {
     public async continue() {
         return this._sync(async () => {
             this.emit('continued', {});
-            await this._sendCommand("c\n");
+            this._sendCommand("c\n");
         })
     }
 
@@ -172,27 +175,27 @@ export class PerlProcess extends EventEmitter {
     public async next() {
         return this._sync(async () => {
             this.emit('stopOnStep');
-            await this._sendCommand("n\n");
+            this._sendCommand("n\n");
         });
     }
 
     public async singleStep() {
         return this._sync(async () => {
             this.emit('stopOnStep');
-            await this._sendCommand("s\n");
+            this._sendCommand("s\n");
         });
     }
 
     public async stepOut() {
         return this._sync(async () => {
             this.emit('stopOnStep');
-            await this._sendCommand("o\n");
+            this._sendCommand("o\n");
         });
     }
 
     public async restart() {
         return this._sync(async () => {
-            await this._sendCommand("R\n");
+            this._sendCommand("R\n");
         });
     }
 
@@ -205,14 +208,14 @@ export class PerlProcess extends EventEmitter {
 
     public async getLocalScopedVariables(): Promise<string> {
         return this._sync(async () => {
-            const output: string = await this._sendCommand('y\n');
+            const output: string = await this._getOutputForCommand('y\n');
             return output;
         });
     }
 
     public async getGlobalScopedVariables(): Promise<string> {
         return this._sync(async () => {
-            const output: string = await this._sendCommand('V\n');
+            const output: string = await this._getOutputForCommand('V\n');
             return output;
         });
     }
@@ -223,7 +226,7 @@ export class PerlProcess extends EventEmitter {
             if (expression.startsWith('%')) {
                 expression = `\\${expression}`
             }
-            const output: string = await this._sendCommand(`x ${expression}\n`);
+            const output: string = await this._getOutputForCommand(`x ${expression}\n`);
             return output;
         });
     }

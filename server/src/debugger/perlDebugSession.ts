@@ -174,20 +174,20 @@ export class PerlDebugSession extends DebugSession {
             return;
         }
 
-        const runInTerminalPromise = new Promise<DebugProtocol.RunInTerminalResponse>((resolve) => {
-            this.runInTerminalRequest({
-                kind: 'integrated',
-                title: 'Perl Debug',
-                cwd: '',
-                args: [],
-            }, 2000, (response: DebugProtocol.RunInTerminalResponse) => {
-                resolve(response);
-            });
-        });
+        // const runInTerminalPromise = new Promise<DebugProtocol.RunInTerminalResponse>((resolve) => {
+        //     this.runInTerminalRequest({
+        //         kind: 'integrated',
+        //         title: 'Perl Debug',
+        //         cwd: '',
+        //         args: [],
+        //     }, 2000, (response: DebugProtocol.RunInTerminalResponse) => {
+        //         resolve(response);
+        //     });
+        // });
 
-        const terminalResponse = await runInTerminalPromise;
-        const shellProcessId: number = terminalResponse.body?.shellProcessId || 0;
-        const ttyPath: string = getTtyFromProcessId(shellProcessId) || '';
+        // const terminalResponse = await runInTerminalPromise;
+        // const shellProcessId: number = terminalResponse.body?.shellProcessId || 0;
+        // const ttyPath: string = getTtyFromProcessId(shellProcessId) || '';
 
         const spawnOptions: SpawnOptions = {
             detached: true,
@@ -210,14 +210,7 @@ export class PerlDebugSession extends DebugSession {
 
         this.perlProcess = new PerlProcess(childProcess);
 
-        // set things on the process
-        // so that all the STDOUT is sent out as when available.
-        await this.perlProcess.autoFlushStdOut();
-        // await this.perlProcess.setTty(ttyPath);
-
-        childProcess.stdout?.pipe(process.stdout);
-
-        // register for all events
+        // register for all events first
         this.perlProcess.on('stderr.output', (output: string) => {
             this.sendEvent(new OutputEvent(output, 'stdout'));
         });
@@ -250,6 +243,10 @@ export class PerlDebugSession extends DebugSession {
             this.sendEvent(new TerminatedEvent());
         });
         // end of all events
+
+        // set things on the process
+        // so that all the STDOUT is sent out as when available.
+        await this.perlProcess.autoFlushStdOut();
 
         this.sendResponse(response);
         this.sendEvent(new InitializedEvent());
@@ -377,7 +374,7 @@ export class PerlDebugSession extends DebugSession {
     }
 
     private _getVariableReferenceFromValue(variableValue: string, context?: NestedVariableType): number {
-        if (variableValue.match(/^(\w+=)?HASH\((0x[0-9a-f]+)\)/)) {
+        if (variableValue.match(/^(.*=)?HASH\((0x[0-9a-f]+)\)/)) {
             return this._variableHandles.create(new NestedVariable(NestedVariableType.Hash, variableValue));
         }
         else if (variableValue.match(/^ARRAY\((0x[0-9a-f]+)\)/)) {
