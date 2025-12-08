@@ -1,16 +1,16 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { brotliCompressSync, brotliDecompressSync } from 'node:zlib';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { Connection, Definition, Diagnostic, DiagnosticSeverity, DocumentSymbol, ErrorCodes, InitializeParams, Location, Position, Range, ResponseError, SymbolInformation, SymbolKind, TextEdit, WorkspaceEdit, WorkspaceSymbol, } from 'vscode-languageserver/node';
 import * as Parser from 'web-tree-sitter';
 import { AnalyzeMode, CachingStrategy, ExtensionSettings, FileDeclarations, FunctionReference, ImportDetail, MAX_NUMBER_OF_FILES_TO_BEGIN_CACHING, URIToTree } from './types/common.types';
 import { getFilesFromPath } from './util/file';
 import { getGlobPattern } from './util/perl_utils';
-import { forEachNode, forEachNodeAnalyze, getFunctionNameRangeFromDeclarationRange, getIdentifierPositionWithinPosition, getPackageNodeForNode, getRangeForNode, getRangeForURI } from './util/tree_sitter_utils';
+import { forEachNode, forEachNodeAnalyze, getFunctionNameRangeFromDeclarationRange, getPackageNodeForNode, getRangeForNode, getRangeForURI } from './util/tree_sitter_utils';
 
+import SuperJSON, { SuperJSONResult } from 'superjson';
 import { fileURLToPath } from 'url';
-import { createFunctionRefKey, extractSubroutineNameFromFullFunctionName, parseFunctionRefKey } from './util/basic';
+import { extractSubroutineNameFromFullFunctionName } from './util/basic';
 
 class Analyzer {
   // dependencies
@@ -44,8 +44,8 @@ class Analyzer {
       
       // Convert Maps to plain objects for JSON serialization
       const dataToSave = {
-        uriToFunctionDeclarations: Object.fromEntries(this.uriToFunctionDeclarations),
-        functionReference: Object.fromEntries(this.uriToFunctionReferences),
+        uriToFunctionDeclarations: this.uriToFunctionDeclarations,
+        functionReference: this.uriToFunctionReferences,
       };
       
       // Convert to JSON string and compress using Brotli (better compression than gzip)
@@ -53,7 +53,7 @@ class Analyzer {
       
       // Write the compressed data to file
       // await fs.writeFile(functionMapPath, compressedData);
-      await fs.writeFile(functionMapPath, JSON.stringify(dataToSave), 'utf-8');
+      await fs.writeFile(functionMapPath, SuperJSON.stringify(dataToSave), 'utf-8');
 
       console.log('Function map saved successfully to .vscode/function_map.json file');
       
@@ -70,10 +70,15 @@ class Analyzer {
       // const data = JSON.parse(decompressedBuffer.toString('utf8'));
 
       const functionMapPath = path.join(fileURLToPath(this.workspaceFolder), '.vscode', 'function_map.json');
-      const data = JSON.parse(await fs.readFile(functionMapPath, 'utf-8'));
+      const data = SuperJSON.parse<SuperJSONResult>(await fs.readFile(functionMapPath, 'utf-8'));
 
-      this.uriToFunctionDeclarations = new Map(Object.entries(data.uriToFunctionDeclarations || {}));
-      this.uriToFunctionReferences = new Map(Object.entries(data.functionReference || {}));
+      const originalMap: {
+        uriToFunctionDeclarations: Map<string, FunctionReference[]>;
+        functionReference: Map<string, Map<string, FunctionReference[]>>
+      } = SuperJSON.deserialize(data, { inPlace: true });
+
+      this.uriToFunctionDeclarations = originalMap.uriToFunctionDeclarations || new Map();
+      this.uriToFunctionReferences = originalMap.functionReference || new Map();
 
       return true;
     } catch (error) {
