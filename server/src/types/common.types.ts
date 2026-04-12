@@ -7,6 +7,7 @@ interface ExtensionSettings {
   showAllErrors: boolean;
 	maxNumberOfProblems: number;
   caching: CachingStrategy;
+  functionMapCompressionLevel: number;
   importStyle: ImportStyle;
   functionCallStyle: FunctionCallStyle;
 }

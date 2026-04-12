@@ -96,6 +96,14 @@
             "Caches the entire workspace source tree. For a large workspace this could crash the server",
             "Caches only the opened files. This will be still fast."
           ]
+        },
+        "perl.functionMapCompressionLevel": {
+          "scope": "machine-overridable",
+          "type": "number",
+          "default": 5,
+          "minimum": 0,
+          "maximum": 11,
+          "description": "Controls Brotli compression quality for the cached .vscode/function_map.json.br file. Lower values write faster with larger files; higher values write slower with smaller files."
         }
       }
     },

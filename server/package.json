@@ -8,6 +8,7 @@
 		"node": "*"
 	},
 	"dependencies": {
+		"@discoveryjs/json-ext": "^0.6.3",
 		"@vscode/debugadapter": "^1.68.0",
 		"@vscode/debugprotocol": "^1.68.0",
 		"await-notify": "^1.0.1",
