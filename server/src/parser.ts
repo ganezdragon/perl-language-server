@@ -1,4 +1,4 @@
-import * as Parser from 'web-tree-sitter';
+import Parser = require('web-tree-sitter');
 
 async function initializeParser(): Promise<Parser> {
   await Parser.init();
