@@ -1,16 +1,20 @@
-import * as fs from 'fs/promises';
+import * as fs from 'fs';
 import * as path from 'path';
-import { brotliCompressSync, brotliDecompressSync } from 'node:zlib';
+import { Readable } from 'stream';
+import { pipeline } from 'stream/promises';
+import { constants as zlibConstants, createBrotliCompress, createBrotliDecompress } from 'zlib';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { Connection, Definition, Diagnostic, DiagnosticSeverity, DocumentSymbol, ErrorCodes, InitializeParams, Location, Position, Range, ResponseError, SymbolInformation, SymbolKind, TextEdit, WorkspaceEdit, WorkspaceSymbol, } from 'vscode-languageserver/node';
 import * as Parser from 'web-tree-sitter';
 import { AnalyzeMode, CachingStrategy, ExtensionSettings, FileDeclarations, FunctionReference, ImportDetail, MAX_NUMBER_OF_FILES_TO_BEGIN_CACHING, URIToTree } from './types/common.types';
 import { getFilesFromPath } from './util/file';
 import { getGlobPattern } from './util/perl_utils';
-import { forEachNode, forEachNodeAnalyze, getFunctionNameRangeFromDeclarationRange, getIdentifierPositionWithinPosition, getPackageNodeForNode, getRangeForNode, getRangeForURI } from './util/tree_sitter_utils';
+import { forEachNode, forEachNodeAnalyze, getFunctionNameRangeFromDeclarationRange, getPackageNodeForNode, getRangeForNode, getRangeForURI } from './util/tree_sitter_utils';
 
+import SuperJSON, { SuperJSONResult } from 'superjson';
 import { fileURLToPath } from 'url';
-import { createFunctionRefKey, extractSubroutineNameFromFullFunctionName, parseFunctionRefKey } from './util/basic';
+import { extractSubroutineNameFromFullFunctionName } from './util/basic';
+import { parseChunked, stringifyChunked } from '@discoveryjs/json-ext';
 
 class Analyzer {
   // dependencies
@@ -32,48 +36,101 @@ class Analyzer {
     this.workspaceFolder = workspaceFolder;
   }
 
-  private async saveFunctionMapToFile(): Promise<void> {
+  private async saveFunctionMapToFile(compressionLevel: number): Promise<void> {
+    let temporaryFunctionMapPath = '';
+
     try {
       // if there are more than 10000 files, lets save to disk
       if (! (this.uriToFunctionDeclarations.size > MAX_NUMBER_OF_FILES_TO_BEGIN_CACHING || this.uriToFunctionReferences.size > MAX_NUMBER_OF_FILES_TO_BEGIN_CACHING)) {
         return;
       }
-      const functionMapPath = path.join(fileURLToPath(this.workspaceFolder), '.vscode', 'function_map.json');
+      const functionMapDirectory = path.join(fileURLToPath(this.workspaceFolder), '.vscode');
+      const compressedFunctionMapPath = path.join(functionMapDirectory, 'function_map.json.br');
+      const legacyFunctionMapPath = path.join(functionMapDirectory, 'function_map.json');
 
-      await fs.mkdir(path.dirname(functionMapPath), { recursive: true });
+      fs.mkdirSync(functionMapDirectory, { recursive: true });
       
-      // Convert Maps to plain objects for JSON serialization
+      // Keep the live Maps intact here. SuperJSON is responsible for converting the payload
+      // into a JSON-safe representation that can be restored back into Maps on load.
       const dataToSave = {
-        uriToFunctionDeclarations: Object.fromEntries(this.uriToFunctionDeclarations),
-        functionReference: Object.fromEntries(this.uriToFunctionReferences),
+        uriToFunctionDeclarations: this.uriToFunctionDeclarations,
+        functionReference: this.uriToFunctionReferences,
       };
-      
-      // Convert to JSON string and compress using Brotli (better compression than gzip)
-      // const compressedData: Buffer = brotliCompressSync(JSON.stringify(dataToSave));
-      
-      // Write the compressed data to file
-      // await fs.writeFile(functionMapPath, compressedData);
-      await fs.writeFile(functionMapPath, JSON.stringify(dataToSave), 'utf-8');
 
-      console.log('Function map saved successfully to .vscode/function_map.json file');
+      // SuperJSON preserves Maps and other non-plain JSON values by splitting the payload
+      // into a JSON-safe `json` value and a matching `meta` description. We need to persist
+      // both pieces, so we stream the full SuperJSONResult instead of only the `json` field.
+      const serializedPayload: SuperJSONResult = SuperJSON.serialize(dataToSave);
+      const effectiveCompressionLevel = Math.min(11, Math.max(0, Math.trunc(compressionLevel)));
+
+      // `JSON.stringify()` builds one giant string in memory, which breaks down once the cache
+      // reaches the GB range. `stringifyChunked()` generates small JSON fragments instead, and
+      // `pipeline()` applies backpressure so Node only buffers what the writable stream can take.
+      // We also compress the stream with Brotli before it hits disk to reduce cache size.
+      // The compression level comes from extension settings so large-workspace users can tune
+      // write speed versus final cache size without changing the implementation.
+      // Writing to a temp file first avoids leaving a half-written cache behind on failure.
+      temporaryFunctionMapPath = `${compressedFunctionMapPath}.tmp`;
+
+      await pipeline(
+        Readable.from(stringifyChunked(serializedPayload, { highWaterMark: 64 * 1024 })),
+        createBrotliCompress({
+          params: {
+            // Brotli supports quality levels from 0..11. Clamp the configured value so an
+            // invalid workspace setting cannot crash cache generation.
+            [zlibConstants.BROTLI_PARAM_QUALITY]: effectiveCompressionLevel,
+          },
+        }),
+        fs.createWriteStream(temporaryFunctionMapPath, { encoding: 'utf-8' }),
+      );
+
+      fs.renameSync(temporaryFunctionMapPath, compressedFunctionMapPath);
+
+      // Remove the old uncompressed cache once the compressed replacement is committed.
+      if (fs.existsSync(legacyFunctionMapPath)) {
+        fs.unlinkSync(legacyFunctionMapPath);
+      }
+
+      console.log(`Function map saved successfully to .vscode/function_map.json.br file using Brotli level ${effectiveCompressionLevel}`);
       
     } catch (error) {
+      if (temporaryFunctionMapPath && fs.existsSync(temporaryFunctionMapPath)) {
+        fs.unlinkSync(temporaryFunctionMapPath);
+      }
+
       console.error('Error saving function map:', error);
     }
   }
 
   private async loadFunctionMapFromFile(): Promise<boolean> {
     try {
-      // const functionMapPath = path.join(fileURLToPath(this.workspaceFolder), '.vscode', 'function_map.zip');
-      // const compressedData: Buffer = await fs.readFile(functionMapPath);
-      // const decompressedBuffer: Buffer = brotliDecompressSync(compressedData);
-      // const data = JSON.parse(decompressedBuffer.toString('utf8'));
+      const functionMapDirectory = path.join(fileURLToPath(this.workspaceFolder), '.vscode');
+      const compressedFunctionMapPath = path.join(functionMapDirectory, 'function_map.json.br');
+      const legacyFunctionMapPath = path.join(functionMapDirectory, 'function_map.json');
 
-      const functionMapPath = path.join(fileURLToPath(this.workspaceFolder), '.vscode', 'function_map.json');
-      const data = JSON.parse(await fs.readFile(functionMapPath, 'utf-8'));
+      let data: SuperJSONResult;
 
-      this.uriToFunctionDeclarations = new Map(Object.entries(data.uriToFunctionDeclarations || {}));
-      this.uriToFunctionReferences = new Map(Object.entries(data.functionReference || {}));
+      if (fs.existsSync(compressedFunctionMapPath)) {
+        // Load the Brotli-compressed cache as a stream, decompress it incrementally, then let
+        // `parseChunked()` rebuild the JSON payload without materializing one massive string.
+        data = await parseChunked(
+          fs.createReadStream(compressedFunctionMapPath).pipe(createBrotliDecompress()),
+        ) as SuperJSONResult;
+      }
+      else {
+        // Keep the old uncompressed cache readable so existing users can upgrade in place.
+        data = await parseChunked(
+          fs.createReadStream(legacyFunctionMapPath, { encoding: 'utf-8' }),
+        ) as SuperJSONResult;
+      }
+
+      const originalMap: {
+        uriToFunctionDeclarations: Map<string, FunctionReference[]>;
+        functionReference: Map<string, Map<string, FunctionReference[]>>
+      } = SuperJSON.deserialize(data, { inPlace: true });
+
+      this.uriToFunctionDeclarations = originalMap.uriToFunctionDeclarations || new Map();
+      this.uriToFunctionReferences = originalMap.functionReference || new Map();
 
       return true;
     } catch (error) {
@@ -316,7 +373,7 @@ class Analyzer {
       for (const filePath of filePaths) {
         let fileContent: string;
           try {
-            fileContent = await fs.readFile(filePath, { encoding: 'utf-8' });
+            fileContent = fs.readFileSync(filePath, { encoding: 'utf-8' });
           }
           catch (error: any) {
             connection.console.warn(`Failed to read file with error - ${error.message}`);
@@ -367,7 +424,7 @@ class Analyzer {
           }
       }
 
-      this.saveFunctionMapToFile();
+      await this.saveFunctionMapToFile(settings.functionMapCompressionLevel);
     }
   }
 
@@ -382,7 +439,7 @@ class Analyzer {
     if (!this.uriToTree.has(uri)) {
       let fileContent: string = '';
       try {
-        fileContent = await fs.readFile(fileURLToPath(uri), { encoding: 'utf-8' });
+        fileContent = fs.readFileSync(fileURLToPath(uri), { encoding: 'utf-8' });
 
       } catch (error) {
         console.error(`Error while getting tree for current file - ${error}`);

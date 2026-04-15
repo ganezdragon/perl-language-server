@@ -18,7 +18,7 @@ export default class PerlServer {
   // The global settings, used when the `workspace/configuration` request is not supported by the client.
   // Please note that this is not the case when using this server with the client provided in this example
   // but could happen with other clients.
-  private defaultSettings: ExtensionSettings = { showAllErrors: false, maxNumberOfProblems: 1000, caching: CachingStrategy.eager, importStyle: ImportStyle.functionOnly, functionCallStyle: FunctionCallStyle.packageNameAndFunctionName };
+  private defaultSettings: ExtensionSettings = { showAllErrors: false, maxNumberOfProblems: 1000, caching: CachingStrategy.eager, functionMapCompressionLevel: 5, importStyle: ImportStyle.functionOnly, functionCallStyle: FunctionCallStyle.packageNameAndFunctionName };
   private globalSettings: ExtensionSettings = this.defaultSettings;
 
   // Cache the settings of all open documents

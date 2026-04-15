@@ -107,6 +107,7 @@ A modern Debugger Extension for Perl integrated with the Perl Language Server (P
 This extension contributes the following settings:
 
 * `perl.maxNumberOfProblems`: Controls the maximum number of problems produced by the server.
+* `perl.functionMapCompressionLevel`: Controls Brotli compression quality for `.vscode/function_map.json.br`. Lower values save faster with larger cache files, while higher values save slower with smaller cache files.
 
 ## 🧪 Known Limitations
 
